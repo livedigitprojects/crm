@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
+import usePolling from './hooks/usePolling';
 import ToastContainer from './components/UI/Toast';
 import DarkModeToggle from './components/UI/DarkModeToggle';
 import Button from './components/UI/Button';
@@ -12,6 +13,7 @@ import Card from './components/UI/Card';
 import SalesPortal from './components/Portals/SalesPortal';
 import AdminPortal from './components/Portals/AdminPortal';
 import TechnicalPortal from './components/Portals/TechnicalPortal';
+
 
 export default function App() {
   const { user, logout, login, loading, authFetch } = useAuth();
@@ -67,13 +69,8 @@ export default function App() {
     }
   };
 
-  // Poll notifications from server when user is logged in
-  useEffect(() => {
-    if (!user) return;
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 5000);
-    return () => clearInterval(interval);
-  }, [user]);
+  // Poll notifications every 60s (paused while tab is hidden) when logged in
+  usePolling(fetchNotifications, 60000, { enabled: !!user });
 
   // Toast System Actions
   const addToast = (title, message, type = 'info') => {
@@ -144,9 +141,6 @@ export default function App() {
         
         {/* Logo */}
         <div className="flex items-center gap-3">
-          {/* <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold text-xl shadow-lg shadow-indigo-500/20">
-            L
-          </div> */}
           <div>
             <h1 className="text-xl font-extrabold tracking-tight bg-linear-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent leading-none">
               Livedigit
@@ -249,12 +243,6 @@ export default function App() {
                   >
                     Sign In to Portal
                   </Button>
-
-                  {/* <div className="p-3.5 bg-indigo-500/5 rounded-xl border border-indigo-500/10 text-xs text-indigo-950 dark:text-indigo-400 space-y-1.5">
-                    <strong className="font-semibold block mb-0.5">Testing Accounts:</strong>
-                    <div>Admin: <code className="bg-indigo-500/10 dark:bg-indigo-500/20 px-1 py-0.5 rounded font-mono font-bold">admin</code> / <code className="bg-indigo-500/10 dark:bg-indigo-500/20 px-1 py-0.5 rounded font-mono font-bold">admin123</code></div>
-                    <div>Sales: <code className="bg-indigo-500/10 dark:bg-indigo-500/20 px-1 py-0.5 rounded font-mono font-bold">tharun</code> / <code className="bg-indigo-500/10 dark:bg-indigo-500/20 px-1 py-0.5 rounded font-mono font-bold">sales123</code></div>
-                  </div> */}
                 </form>
               </Card>
             </motion.div>

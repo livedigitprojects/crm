@@ -30,6 +30,8 @@ import Button from '../UI/Button';
 import { Input } from '../UI/Input';
 import { useAuth } from '../../context/AuthContext';
 import ClientChat from '../UI/ClientChat';
+import usePolling from '../../hooks/usePolling';
+
 
 const getTeamDisplayLabel = (assignedTeam) => {
   if (!assignedTeam) return 'Not Assigned';
@@ -457,11 +459,10 @@ export default function TechnicalPortal({
   };
 
   useEffect(() => {
-    fetchAssignedLeads();
-    fetchEmployees();
-    const interval = setInterval(fetchAssignedLeads, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  fetchEmployees();
+}, []);
+
+usePolling(fetchAssignedLeads, 30000);
 
   const selectedLead = leads.find(l => (l._id || l.id) === selectedLeadId);
 

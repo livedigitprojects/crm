@@ -92,7 +92,7 @@ export default function ClientChat({ leadId, layout = 'grid' }) {
 
     const fetchLatestMessages = async () => {
       try {
-        const res = await authFetch(`/api/leads/${leadId}`);
+        const res = await authFetch(`/api/leads/${leadId}/messages`);
         if (res.ok) {
           const data = await res.json();
           const nextMsgs = data.communications || [];
@@ -121,10 +121,23 @@ export default function ClientChat({ leadId, layout = 'grid' }) {
     };
 
     fetchLatestMessages();
-    const interval = setInterval(fetchLatestMessages, 3000);
+    let running = false;
+const poll = async () => {
+  if (document.hidden || running) return;
+  running = true;
+  try {
+    await fetchLatestMessages();
+  } finally {
+    running = false;
+  }
+};
+const interval = setInterval(poll, 10000);
+const onVisible = () => { if (!document.hidden) poll(); };
+document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
       setReplyingToWork(null);
       setReplyingToClient(null);
       setReplyingToSales(null);

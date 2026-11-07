@@ -44,6 +44,7 @@ import { Input } from '../UI/Input';
 import AppsScriptGuide from '../Help/AppsScriptGuide';
 import { useAuth } from '../../context/AuthContext';
 import ClientChat from '../UI/ClientChat';
+import usePolling from '../../hooks/usePolling';
 
 const getTeamDisplayLabel = (assignedTeam) => {
   if (!assignedTeam) return 'Not Assigned';
@@ -342,11 +343,22 @@ const [filterEndDate, setFilterEndDate] = useState('');
     }
   };
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const fetchLeadsOnly = async () => {
+  try {
+    const leadsRes = await authFetch('/api/leads');
+    if (leadsRes.ok) {
+      setLeads(await leadsRes.json());
+    }
+  } catch (error) {
+    console.error('Error refreshing leads:', error);
+  }
+};
+
+useEffect(() => {
+  fetchData();
+}, []);
+
+usePolling(fetchLeadsOnly, 30000, { immediate: false });
 
   const fetchDailyReports = async (team) => {
     if (!team) return;

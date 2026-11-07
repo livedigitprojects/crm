@@ -37,6 +37,7 @@ import confetti from 'canvas-confetti';
 import Card from '../UI/Card';
 import Button from '../UI/Button';
 import { useAuth } from '../../context/AuthContext';
+import usePolling from '../../hooks/usePolling';
 
 // Wizard Steps
 import StepProfileAccess from '../FormSteps/StepProfileAccess';
@@ -396,11 +397,10 @@ export default function SalesPortal({
   };
 
   useEffect(() => {
-    fetchLeads();
-    fetchEmployees();
-    const interval = setInterval(fetchLeads, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  fetchEmployees();
+}, []);
+
+usePolling(fetchLeads, 30000);
 
   // Form setup for wizard
   const { 
