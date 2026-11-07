@@ -1,13 +1,11 @@
 const Notification = require('../models/Notification');
 
-// @route   GET /api/notifications
-// @desc    Get recent notifications
-// @access  Private
 const getNotifications = async (req, res) => {
   try {
     const notifications = await Notification.find()
       .sort({ timestamp: -1 })
-      .limit(50);
+      .limit(50)
+      .lean();
     res.json(notifications);
   } catch (err) {
     console.error('Error fetching notifications:', err);
@@ -15,9 +13,6 @@ const getNotifications = async (req, res) => {
   }
 };
 
-// @route   POST /api/notifications
-// @desc    Create a notification
-// @access  Private
 const createNotification = async (req, res) => {
   try {
     const { message, type } = req.body;
@@ -25,21 +20,12 @@ const createNotification = async (req, res) => {
       return res.status(400).json({ message: 'Message is required' });
     }
 
-    const newNotification = new Notification({
-      message,
-      type
-    });
-
+    const newNotification = new Notification({ message, type });
     await newNotification.save();
 
-    // Auto-prune to keep only the last 100 notifications
-    const count = await Notification.countDocuments();
-    if (count > 100) {
-      const oldest = await Notification.find()
-        .sort({ timestamp: 1 })
-        .limit(count - 100);
-      const oldestIds = oldest.map(n => n._id);
-      await Notification.deleteMany({ _id: { $in: oldestIds } });
+    const stale = await Notification.find().sort({ timestamp: -1 }).skip(100).select('_id').lean();
+    if (stale.length) {
+      await Notification.deleteMany({ _id: { $in: stale.map(n => n._id) } });
     }
 
     res.status(201).json(newNotification);

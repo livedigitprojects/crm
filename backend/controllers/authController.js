@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Lead = require('../models/Lead');
+const { clearUserCache } = require('../middleware/authMiddleware');
 
 // Generate JWT token helper
 const generateToken = (id) => {
@@ -101,7 +102,7 @@ const getUserProfile = async (req, res) => {
 // @access  Private
 const getSalespersons = async (req, res) => {
   try {
-    const salespersons = await User.find({ role: 'salesperson' }).select('name username createdAt');
+    const salespersons = await User.find({ role: 'salesperson' }).select('name username createdAt').lean();
     res.json(salespersons);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -113,7 +114,7 @@ const getSalespersons = async (req, res) => {
 // @access  Private
 const getTechnicalMembers = async (req, res) => {
   try {
-    const technical = await User.find({ role: 'technical' }).select('name username team createdAt');
+    const technical = await User.find({ role: 'technical' }).select('name username team createdAt').lean();
     res.json(technical);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -143,6 +144,7 @@ const deleteUser = async (req, res) => {
 
     // Delete the user
     await User.findByIdAndDelete(req.params.id);
+    clearUserCache(req.params.id);
 
     res.json({ message: 'Account and associated leads/assignments updated successfully' });
   } catch (error) {
@@ -173,6 +175,7 @@ const resetUserPassword = async (req, res) => {
 
     user.password = password;
     await user.save();
+    clearUserCache(req.params.id);
 
     res.json({ message: 'Password reset successfully' });
   } catch (error) {
@@ -223,7 +226,8 @@ const updateEmployee = async (req, res) => {
     }
 
     await user.save();
-
+    clearUserCache(req.params.id);
+    
     // Cascade name changes to Lead records
     if (name && name !== oldName) {
       if (user.role === 'salesperson') {

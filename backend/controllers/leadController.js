@@ -7,21 +7,11 @@ const Notification = require('../models/Notification');
 const createLeadNotification = async (clientId, description) => {
   try {
     const message = `[${clientId}] ${description}`;
-    const notif = new Notification({
-      message,
-      type: 'info',
-      timestamp: new Date()
-    });
-    await notif.save();
-    
-    // Auto-prune to keep only the last 100 notifications
-    const count = await Notification.countDocuments();
-    if (count > 100) {
-      const oldest = await Notification.find()
-        .sort({ timestamp: 1 })
-        .limit(count - 100);
-      const oldestIds = oldest.map(n => n._id);
-      await Notification.deleteMany({ _id: { $in: oldestIds } });
+    await Notification.create({ message, type: 'info', timestamp: new Date() });
+
+    const stale = await Notification.find().sort({ timestamp: -1 }).skip(100).select('_id').lean();
+    if (stale.length) {
+      await Notification.deleteMany({ _id: { $in: stale.map(n => n._id) } });
     }
   } catch (err) {
     console.error('Error generating backend lead notification:', err.message);
@@ -417,7 +407,10 @@ const syncLeadToGoogleSheets = async (lead) => {
 // @access  Private
 const getLeads = async (req, res) => {
   try {
-    const leads = await Lead.find({}).sort({ createdAt: -1 });
+    const leads = await Lead.find({})
+  .select('-communications')
+  .sort({ createdAt: -1 })
+  .lean();
 
     // Map and redact leads according to requester role
     const processedLeads = leads.map(lead => redactLeadForRole(lead, req.user));
@@ -990,6 +983,31 @@ const getLeadById = async (req, res) => {
   }
 };
 
+const getLeadMessages = async (req, res) => {
+  try {
+    const lead = await Lead.findById(req.params.id)
+      .select('clientName companyName mobileNumber communications')
+      .lean();
+    if (!lead) {
+      return res.status(404).json({ message: 'Lead record not found' });
+    }
+
+    let communications = lead.communications || [];
+    if (req.user.role === 'technical') {
+      communications = communications.filter(m => m.category !== 'Sales Notes');
+    }
+
+    res.json({
+      clientName: lead.clientName || '',
+      companyName: lead.companyName || '',
+      mobileNumber: lead.mobileNumber || '',
+      communications
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // @desc    Add a message to lead communications
 // @route   POST /api/leads/:id/messages
 // @access  Private
@@ -1080,5 +1098,6 @@ module.exports = {
   updateLead,
   deleteLead,
   syncLead,
-  addLeadMessage
+  addLeadMessage,
+  getLeadMessages
 };
