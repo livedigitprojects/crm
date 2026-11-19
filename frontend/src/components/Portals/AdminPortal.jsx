@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import * as XLSX from 'xlsx';
 import { 
   Users, 
   UserPlus, 
@@ -1345,7 +1344,7 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
     return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
   };
 
-  const handleSalesReportExcelDownload = () => {
+  const handleSalesReportExcelDownload = async () => {
     const rows = filteredSalesReportLeads.map(lead => {
       const schedules = getCampaignSchedule(lead);
       const scheduleStr = schedules.length > 0
@@ -1386,6 +1385,7 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
       'Pending Amount (₹)': salesReportTotals.totalPayable,
     });
 
+    const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Sales Report');
@@ -1476,7 +1476,7 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
 
   // ── SALES REVIEW HELPERS ────────────────────────────────────────────────────
 
-  const handleSalesReviewExcelDownload = () => {
+  const handleSalesReviewExcelDownload = async () => {
     const rows = filteredSalesReviewLeads.map(lead => {
       const schedules = getCampaignSchedule(lead);
       const scheduleStr = schedules.length > 0
@@ -1513,6 +1513,7 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
       'Sales Review Note': `With Notes: ${salesReviewTotals.totalWithNotes}`,
     });
 
+    const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Sales Review');

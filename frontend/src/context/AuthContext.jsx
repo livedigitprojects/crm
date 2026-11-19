@@ -1,6 +1,11 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
 
 const AuthContext = createContext(null);
+
+const getApiUrl = () => {
+  const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  return rawApiUrl.endsWith('/') ? rawApiUrl.slice(0, -1) : rawApiUrl;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
@@ -14,6 +19,10 @@ export const AuthProvider = ({ children }) => {
 
   const [loading, setLoading] = useState(true);
 
+  // Always holds the latest token, so authFetch can stay a stable function
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+
   useEffect(() => {
     const verifySession = async () => {
       if (!token) {
@@ -23,9 +32,8 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
         return;
       }
-      
-      const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const apiUrl = rawApiUrl.endsWith('/') ? rawApiUrl.slice(0, -1) : rawApiUrl;
+
+      const apiUrl = getApiUrl();
       try {
         const response = await fetch(`${apiUrl}/api/auth/me`, {
           headers: {
@@ -70,8 +78,7 @@ export const AuthProvider = ({ children }) => {
   }, [token]);
 
   const login = async (username, password, role) => {
-    const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const apiUrl = rawApiUrl.endsWith('/') ? rawApiUrl.slice(0, -1) : rawApiUrl;
+    const apiUrl = getApiUrl();
     try {
       const response = await fetch(`${apiUrl}/api/auth/login`, {
         method: 'POST',
@@ -95,7 +102,7 @@ export const AuthProvider = ({ children }) => {
         role: data.role,
         team: data.team
       });
-      
+
       return { success: true, user: data };
     } catch (error) {
       console.error('Login request error:', error.message);
@@ -103,37 +110,48 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
+    // Clear the ref immediately so any request fired during the sign-out
+    // animation sees "signed out" instead of sending a dead token
+    tokenRef.current = null;
     setUser(null);
     setToken(null);
     localStorage.removeItem('crm_token');
     localStorage.removeItem('crm_user');
-  };
+  }, []);
 
-  const authFetch = async (url, options = {}) => {
-    const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const apiUrl = rawApiUrl.endsWith('/') ? rawApiUrl.slice(0, -1) : rawApiUrl;
-    const headers = {
-      'Content-Type': 'application/json',
-      ...options.headers
-    };
+  // Stable function (never changes identity), so components that list it in
+  // their effect dependencies don't re-fetch every time auth state changes.
+  const authFetch = useCallback(async (url, options = {}) => {
+    const currentToken = tokenRef.current;
 
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    // Signed out (e.g. a poll firing while the portal animates away):
+    // skip the network call, so no 401 error appears in the console.
+    if (!currentToken) {
+      return new Response(JSON.stringify({ message: 'Not signed in' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
-    const res = await fetch(`${apiUrl}${url}`, {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+      'Authorization': `Bearer ${currentToken}`
+    };
+
+    const res = await fetch(`${getApiUrl()}${url}`, {
       ...options,
       headers
     });
 
-    if (res.status === 401) {
-      // Auto logout if token expires/invalid
+    if (res.status === 401 && tokenRef.current === currentToken) {
+      // Token expired/invalid → sign out (ignore stale responses from an older session)
       logout();
     }
 
     return res;
-  };
+  }, [logout]);
 
   return (
     <AuthContext.Provider value={{ user, token, login, logout, authFetch, loading }}>

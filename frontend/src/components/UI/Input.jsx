@@ -1,5 +1,12 @@
 import React, { forwardRef } from 'react';
 
+const labelCls = 'text-xs font-semibold text-gray-700 dark:text-gray-300';
+const fieldBase =
+  'w-full rounded-xl border py-2.5 px-3.5 text-sm outline-hidden bg-white dark:bg-slate-900/60 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500 shadow-xs';
+const fieldOk =
+  'border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15';
+const fieldErr = 'border-red-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/15';
+
 // Reusable text, number, date, url inputs
 export const Input = forwardRef(({
   label,
@@ -14,12 +21,12 @@ export const Input = forwardRef(({
   return (
     <div className={`flex flex-col gap-1.5 w-full ${className}`}>
       {label && (
-        <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1">
+        <label className={`${labelCls} flex items-center gap-1`}>
           {label}
           {required && <span className="text-red-500">*</span>}
         </label>
       )}
-      <div className="relative rounded-xl shadow-xs">
+      <div className="relative">
         {Icon && (
           <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 dark:text-gray-500">
             <Icon className="w-4 h-4" />
@@ -28,15 +35,7 @@ export const Input = forwardRef(({
         <input
           ref={ref}
           type={type}
-          className={`
-            w-full rounded-xl border py-2.5 px-3.5 text-sm transition-all outline-hidden
-            bg-white/60 dark:bg-slate-900/40 text-gray-900 dark:text-white
-            ${Icon ? 'pl-10' : 'pl-3.5'}
-            ${error 
-              ? 'border-red-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' 
-              : 'border-gray-200 dark:border-slate-800 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-indigo-500/5'
-            }
-          `}
+          className={`${fieldBase} ${Icon ? 'pl-10' : ''} ${error ? fieldErr : fieldOk}`}
           {...props}
         />
       </div>
@@ -61,21 +60,14 @@ export const Select = forwardRef(({
   return (
     <div className={`flex flex-col gap-1.5 w-full ${className}`}>
       {label && (
-        <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+        <label className={labelCls}>
           {label}
           {required && <span className="text-red-500">*</span>}
         </label>
       )}
       <select
         ref={ref}
-        className={`
-          w-full rounded-xl border py-2.5 px-3.5 text-sm transition-all outline-hidden
-          bg-white/60 dark:bg-slate-900/40 text-gray-950 dark:text-white cursor-pointer
-          ${error 
-            ? 'border-red-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' 
-            : 'border-gray-200 dark:border-slate-800 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-indigo-500/5'
-          }
-        `}
+        className={`${fieldBase} cursor-pointer ${error ? fieldErr : fieldOk}`}
         {...props}
       >
         <option value="" className="text-gray-400 dark:bg-slate-900">{placeholder}</option>
@@ -103,7 +95,7 @@ export const TextArea = forwardRef(({
   return (
     <div className={`flex flex-col gap-1.5 w-full ${className}`}>
       {label && (
-        <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+        <label className={labelCls}>
           {label}
           {required && <span className="text-red-500">*</span>}
         </label>
@@ -111,14 +103,7 @@ export const TextArea = forwardRef(({
       <textarea
         ref={ref}
         rows={3}
-        className={`
-          w-full rounded-xl border py-2.5 px-3.5 text-sm transition-all outline-hidden resize-none
-          bg-white/60 dark:bg-slate-900/40 text-gray-900 dark:text-white
-          ${error 
-            ? 'border-red-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' 
-            : 'border-gray-200 dark:border-slate-800 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-indigo-500/5'
-          }
-        `}
+        className={`${fieldBase} resize-none ${error ? fieldErr : fieldOk}`}
         {...props}
       />
       {error && <span className="text-xs text-red-500 dark:text-red-400 font-medium">{error}</span>}
@@ -140,9 +125,9 @@ export const Checkbox = forwardRef(({
   return (
     <label className={`
       flex items-center gap-3.5 p-3.5 rounded-xl border cursor-pointer select-none transition-all
-      ${checked 
-        ? 'border-indigo-500 bg-indigo-500/5 dark:bg-indigo-500/10 text-indigo-950 dark:text-indigo-200' 
-        : 'border-gray-200 dark:border-slate-800 bg-white/40 hover:bg-white/80 dark:bg-slate-900/20 dark:hover:bg-slate-900/40 text-gray-700 dark:text-gray-300'
+      ${checked
+        ? 'border-indigo-500 bg-indigo-500/6 dark:bg-indigo-500/12 text-indigo-950 dark:text-indigo-200 shadow-xs ring-1 ring-indigo-500/20'
+        : 'border-gray-200 dark:border-slate-700 bg-white/60 hover:bg-white dark:bg-slate-900/30 dark:hover:bg-slate-900/60 hover:border-gray-300 text-gray-700 dark:text-gray-300'
       }
       ${className}
     `}>

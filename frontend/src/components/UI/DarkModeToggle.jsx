@@ -2,20 +2,26 @@ import React from 'react';
 import { Sun, Moon } from 'lucide-react';
 
 export default function DarkModeToggle({ theme, toggleTheme }) {
+  const isDark = theme === 'dark';
   return (
     <button
       type="button"
       onClick={toggleTheme}
-      className="p-2.5 rounded-xl border border-gray-200 dark:border-slate-800 bg-white/50 hover:bg-white/80 dark:bg-slate-950/30 dark:hover:bg-slate-950/60 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-all cursor-pointer shadow-sm relative group overflow-hidden"
+      className="relative inline-flex items-center w-[3.5rem] h-8 rounded-full border border-gray-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 shadow-xs cursor-pointer shrink-0"
       aria-label="Toggle dark mode"
+      aria-pressed={isDark}
     >
-      <div className="relative z-10">
-        {theme === 'dark' ? (
-          <Sun className="w-4.5 h-4.5 text-amber-400 transition-transform duration-500 rotate-180" />
+      <span
+        className={`absolute top-0.5 left-0.5 w-6.5 h-6.5 rounded-full flex items-center justify-center shadow-sm transition-transform duration-300 ${
+          isDark ? 'translate-x-6 bg-slate-800' : 'translate-x-0 bg-indigo-50'
+        }`}
+      >
+        {isDark ? (
+          <Sun className="w-3.5 h-3.5 text-amber-400" />
         ) : (
-          <Moon className="w-4.5 h-4.5 text-indigo-600 dark:text-indigo-400 transition-transform duration-500 rotate-0" />
+          <Moon className="w-3.5 h-3.5 text-indigo-600" />
         )}
-      </div>
+      </span>
     </button>
   );
 }
