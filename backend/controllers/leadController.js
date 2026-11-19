@@ -78,75 +78,6 @@ const sanitizeNumberFields = (body) => {
 };
 
 // Helper to redact client details for technical department specialists
-// const redactLeadForTechnicalUser = (lead, team) => {
-//   const leadObj = lead.toObject ? lead.toObject() : lead;
-
-//   // Always redact financial details for technical users
-//   delete leadObj.planAmount;
-//   delete leadObj.advanceAmount;
-//   delete leadObj.pendingAmount;
-
-//   if (team === 'developer') {
-//     // Developers only see website-related requirements and data
-//     delete leadObj.postersRequired;
-//     delete leadObj.postersPending;
-//     delete leadObj.postersStatus;
-//     delete leadObj.videosRequired;
-//     delete leadObj.videosPending;
-//     delete leadObj.videosStatus;
-//     delete leadObj.brandColors;
-
-//     delete leadObj.adsRequired;
-//     delete leadObj.adsPending;
-//     delete leadObj.adsStatus;
-//     delete leadObj.adBudget;
-//     delete leadObj.adBudgetPerDay;
-//     delete leadObj.facebookId;
-//     delete leadObj.facebookPassword;
-//     delete leadObj.instagramId;
-//     delete leadObj.instagramPassword;
-//     delete leadObj.platforms;
-//   } else if (team === 'design') {
-//     // Designing Team only sees design-related requirements
-//     delete leadObj.websiteRequired;
-//     delete leadObj.websiteType;
-//     delete leadObj.websiteStatus;
-//     delete leadObj.websitePending;
-//     delete leadObj.websiteUrl;
-
-//     delete leadObj.adsRequired;
-//     delete leadObj.adsPending;
-//     delete leadObj.adsStatus;
-//     delete leadObj.adBudget;
-//     delete leadObj.adBudgetPerDay;
-//     delete leadObj.facebookId;
-//     delete leadObj.facebookPassword;
-//     delete leadObj.instagramId;
-//     delete leadObj.instagramPassword;
-//     delete leadObj.platforms;
-//   } else if (team === 'ads') {
-//     // Ads Team only sees campaign-related requirements and advertising details
-//     delete leadObj.websiteRequired;
-//     delete leadObj.websiteType;
-//     delete leadObj.websiteStatus;
-//     delete leadObj.websitePending;
-//     delete leadObj.websiteUrl;
-
-//     delete leadObj.postersRequired;
-//     delete leadObj.postersPending;
-//     delete leadObj.postersStatus;
-//     delete leadObj.videosRequired;
-//     delete leadObj.videosPending;
-//     delete leadObj.videosStatus;
-//     delete leadObj.brandColors;
-
-//     // Redact project dates and total budget for Ads Team
-//   delete leadObj.adBudget;
-//   }
-
-//   return leadObj;
-// };
-
 const redactLeadForTechnicalUser = (lead, team) => {
   const leadObj = lead.toObject ? lead.toObject() : lead;
 
@@ -407,10 +338,25 @@ const syncLeadToGoogleSheets = async (lead) => {
 // @access  Private
 const getLeads = async (req, res) => {
   try {
-    const leads = await Lead.find({})
-  .select('-communications')
-  .sort({ createdAt: -1 })
-  .lean();
+    const filter = {};
+    if (req.query.startDate || req.query.endDate) {
+      filter.createdAt = {};
+      if (req.query.startDate) {
+        const start = new Date(req.query.startDate);
+        start.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = start;
+      }
+      if (req.query.endDate) {
+        const end = new Date(req.query.endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    const leads = await Lead.find(filter)
+      .select('-communications')
+      .sort({ createdAt: -1 })
+      .lean();
 
     // Map and redact leads according to requester role
     const processedLeads = leads.map(lead => redactLeadForRole(lead, req.user));
@@ -505,6 +451,10 @@ const assignLeads = async (req, res) => {
 // @route   POST /api/leads
 // @access  Private
 const createLead = async (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'salesperson') {
+    return res.status(403).json({ message: 'Access denied: Only salespersons or administrators can create clients' });
+  }
+
   try {
     // Sanitize numeric fields
     sanitizeNumberFields(req.body);
@@ -519,14 +469,6 @@ const createLead = async (req, res) => {
       }
     }
     const clientId = 'LDC' + String(nextNum).padStart(4, '0');
-
-    // const leadData = {
-    //   ...req.body,
-    //   clientId,
-    //   salesperson: req.user.id,
-    //   salespersonName: req.user.name,
-    //   status: 'Draft'
-    // };
 
     const plan = Number(req.body.planAmount || 0);
     const advance = Number(req.body.advanceAmount || 0);
@@ -916,12 +858,13 @@ const deleteLead = async (req, res) => {
       return res.status(404).json({ message: 'Lead record not found' });
     }
 
-    // Verify ownership
-    if (req.user.role !== 'admin' && lead.salesperson.toString() !== req.user.id.toString()) {
-      return res.status(403).json({ message: 'Access denied: Cannot delete leads assigned to others' });
+    // Verify admin authorization
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied: Only authorized administrators can delete lead records' });
     }
 
     await Lead.findByIdAndDelete(req.params.id);
+    await createLeadNotification(lead.clientId || 'N/A', `Client brief for "${lead.clientName}" was permanently deleted by Admin ${req.user.name}`);
     res.json({ message: 'Lead record removed successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -940,7 +883,7 @@ const syncLead = async (req, res) => {
     }
 
     // Verify ownership
-    if (req.user.role !== 'admin' && lead.salesperson.toString() !== req.user.id.toString()) {
+    if (req.user.role !== 'admin' && (!lead.salesperson || lead.salesperson.toString() !== req.user.id.toString())) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -1039,20 +982,9 @@ const addLeadMessage = async (req, res) => {
     const isCreator = lead.salesperson && lead.salesperson.toString() === req.user.id.toString();
     const isTeamMember = req.user.role === 'technical' && hasTeam(lead, req.user.team);
 
-    // let isAssignee = false;
-    // if (req.user.role === 'technical') {
-    //   if (req.user.team === 'developer') {
-    //     isAssignee = lead.assignedDeveloper && lead.assignedDeveloper.toString() === req.user.id.toString();
-    //   } else if (req.user.team === 'design') {
-    //     isAssignee = lead.assignedDesigner && lead.assignedDesigner.toString() === req.user.id.toString();
-    //   } else if (req.user.team === 'ads') {
-    //     isAssignee = lead.assignedAdSpecialist && lead.assignedAdSpecialist.toString() === req.user.id.toString();
-    //   }
-    // }
-
-    // if (!isAdmin && !isCreator && !isTeamMember && !isAssignee) {
-    //   return res.status(403).json({ message: 'Access denied: You do not have access to this client brief' });
-    // }
+    if (!isAdmin && !isCreator && req.user.role !== 'salesperson' && !isTeamMember) {
+      return res.status(403).json({ message: 'Access denied: You do not have access to this client brief' });
+    }
 
     const roleLabel = req.user.role === 'admin' 
       ? 'Admin' 

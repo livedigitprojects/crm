@@ -228,22 +228,65 @@ export default function AdminPortal({
 
   // Metrics modal states
   const [activeMetricsModal, setActiveMetricsModal] = useState(null);
-const [activeSummaryModal, setActiveSummaryModal] = useState(null);
-const [metricsSearchTerm, setMetricsSearchTerm] = useState('');
-const [metricsStatusFilter, setMetricsStatusFilter] = useState('all');
-const [metricsCreatedByFilter, setMetricsCreatedByFilter] = useState('All');
+  const [activeSummaryModal, setActiveSummaryModal] = useState(null);
+  const [metricsSearchTerm, setMetricsSearchTerm] = useState('');
+  const [metricsStatusFilter, setMetricsStatusFilter] = useState('all');
+  const [metricsCreatedByFilter, setMetricsCreatedByFilter] = useState('All');
+  const [metricsStartDate, setMetricsStartDate] = useState('');
+  const [metricsEndDate, setMetricsEndDate] = useState('');
+  const [metricsPreset, setMetricsPreset] = useState('all');
+
+  // Helper for setting date filter presets on metrics
+  const handleDatePreset = (preset) => {
+    setMetricsPreset(preset);
+    const now = new Date();
+    const formatYMD = (d) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    if (preset === 'today') {
+      const todayStr = formatYMD(now);
+      setMetricsStartDate(todayStr);
+      setMetricsEndDate(todayStr);
+    } else if (preset === 'yesterday') {
+      const yest = new Date(now);
+      yest.setDate(yest.getDate() - 1);
+      const yestStr = formatYMD(yest);
+      setMetricsStartDate(yestStr);
+      setMetricsEndDate(yestStr);
+    } else if (preset === 'week') {
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 6);
+      setMetricsStartDate(formatYMD(weekAgo));
+      setMetricsEndDate(formatYMD(now));
+    } else if (preset === 'month') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      setMetricsStartDate(formatYMD(monthStart));
+      setMetricsEndDate(formatYMD(now));
+    } else if (preset === 'all') {
+      setMetricsStartDate('');
+      setMetricsEndDate('');
+    }
+  };
 
   // Reset search/filter whenever a different metrics card is opened/closed
- useEffect(() => {
-  setMetricsSearchTerm('');
-  setMetricsStatusFilter('all');
-  setMetricsCreatedByFilter('All');
-}, [activeMetricsModal]);
+  useEffect(() => {
+    setMetricsSearchTerm('');
+    setMetricsStatusFilter('all');
+    setMetricsCreatedByFilter('All');
+  }, [activeMetricsModal]);
 
   // Client Details modal states
   const [viewedClientId, setViewedClientId] = useState(null);
   const [isEditingClient, setIsEditingClient] = useState(false);
   const [editedClientFields, setEditedClientFields] = useState({});
+
+  // Individual lead deletion states
+  const [leadToDelete, setLeadToDelete] = useState(null);
+  const [isDeletingLead, setIsDeletingLead] = useState(false);
 
   // Relocated header config modals states
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
@@ -522,6 +565,31 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
   const totalRepsCount = salespersonsList.length;
   const totalEmployeesCount = salespersonsList.length + technicalList.length;
   const totalClientsCount = leads.length;
+
+  // Filter leads for the Metrics cards section based on selected date or date range
+  const dateFilteredMetricsLeads = useMemo(() => {
+    if (!metricsStartDate && !metricsEndDate) return leads;
+    return leads.filter((lead) => {
+      const createdRaw = lead.createdAt || lead.timestamp;
+      if (!createdRaw) return false;
+      const created = new Date(createdRaw);
+
+      if (metricsStartDate) {
+        const [sy, sm, sd] = metricsStartDate.split('-').map(Number);
+        const start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+        if (created < start) return false;
+      }
+
+      if (metricsEndDate) {
+        const [ey, em, ed] = metricsEndDate.split('-').map(Number);
+        const end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+        if (created > end) return false;
+      }
+
+      return true;
+    });
+  }, [leads, metricsStartDate, metricsEndDate]);
+
   const totalPendingCount = leads.filter(l => l.status !== 'Submitted to Admin').length;
 
   let totalPendingServices = 0;
@@ -817,6 +885,89 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
     } finally {
       setRepToDelete(null);
     }
+  };
+
+  // Handle individual client lead deletion confirmation
+  const handleDeleteLeadConfirm = async () => {
+    if (!leadToDelete) return;
+    setIsDeletingLead(true);
+    try {
+      const targetId = leadToDelete._id || leadToDelete.id;
+      const res = await authFetch(`/api/leads/${targetId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        onAddToast('Lead Deleted', `Client lead "${leadToDelete.clientName}" (${leadToDelete.clientId || 'N/A'}) was permanently deleted.`, 'success');
+        if (onAddNotification) {
+          onAddNotification(`Client lead "${leadToDelete.clientName}" (${leadToDelete.clientId || 'N/A'}) was permanently deleted by Admin.`, 'assignment');
+        }
+        setLeads(prev => prev.filter(l => (l._id || l.id) !== targetId));
+        if (selectedLead && ((selectedLead._id || selectedLead.id) === targetId)) {
+          setSelectedLead(null);
+        }
+        if (viewedClientId === targetId) {
+          setViewedClientId(null);
+          setIsEditingClient(false);
+          setEditedClientFields({});
+        }
+      } else {
+        onAddToast('Deletion Failed', data.message || 'Error deleting client lead.', 'error');
+      }
+    } catch (err) {
+      console.error('Error deleting lead:', err);
+      onAddToast('Deletion Error', 'Failed to communicate with server.', 'error');
+    } finally {
+      setIsDeletingLead(false);
+      setLeadToDelete(null);
+    }
+  };
+
+  // Confirmation modal for deleting an individual lead
+  const renderDeleteLeadModal = () => {
+    if (!leadToDelete) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[200] overflow-y-auto">
+        <div className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in fade-in duration-200">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-rose-500/10 text-rose-600 rounded-full flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900 dark:text-white">Confirm Lead Deletion</h3>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Permanent record removal</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-650 dark:text-gray-300 leading-normal">
+              Are you sure you want to permanently delete client lead <strong className="text-gray-900 dark:text-white">{leadToDelete.clientName}</strong> (ID: <code className="font-mono text-indigo-600 dark:text-indigo-400 font-bold">{leadToDelete.clientId || 'N/A'}</code>)? This action cannot be undone and will delete the record from the database.
+            </p>
+
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-gray-100 dark:border-slate-800/40">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isDeletingLead}
+                onClick={() => setLeadToDelete(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                isLoading={isDeletingLead}
+                onClick={handleDeleteLeadConfirm}
+                className="flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Permanently
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // Handle representative password reset confirmation
@@ -1666,13 +1817,25 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
                 <h4 className="font-bold text-gray-900 dark:text-white text-sm truncate mt-0.5">{lead.clientName}</h4>
                 <p className="text-xs text-gray-400 dark:text-gray-555 truncate">{lead.email}</p>
               </div>
-              <button
-                onClick={() => setSelectedLead(lead)}
-                className="p-2 rounded-lg hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-colors shrink-0 cursor-pointer"
-                title="Inspect Lead"
-              >
-                <Eye className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => setSelectedLead(lead)}
+                  className="p-2 rounded-lg hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer"
+                  title="Inspect Lead"
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLeadToDelete(lead);
+                  }}
+                  className="p-2 rounded-lg hover:bg-rose-500/10 text-rose-500 hover:text-rose-700 transition-colors cursor-pointer"
+                  title="Delete Lead"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Company + Representative */}
@@ -1811,8 +1974,8 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
   <col className="w-[15%]" />
   <col className="w-[11%]" />
   <col className="w-[13%]" />
-  <col className="w-[14%]" />
-  <col className="w-[4%]" />
+  <col className="w-[12%]" />
+  <col className="w-[6%]" />
 </colgroup>
         <thead>
           <tr className="bg-gray-50/50 dark:bg-slate-900/30 border-b border-gray-100 dark:border-slate-800/60 sticky top-0 z-10">
@@ -1824,7 +1987,7 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
             <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Timestamp</th>
             <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Deliverables</th>
             <th className="p-3 font-bold text-center text-gray-700 dark:text-gray-300">Status</th>
-            <th className="p-3 font-bold text-center text-gray-700 dark:text-gray-300">•</th>
+            <th className="p-3 font-bold text-center text-gray-700 dark:text-gray-300">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-slate-800/40">
@@ -1963,13 +2126,25 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
                 })()}
               </td>
               <td className="p-3 text-center">
-                <button
-                  onClick={() => setSelectedLead(lead)}
-                  className="p-1.5 rounded-lg hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-colors inline-flex cursor-pointer"
-                  title="Inspect Lead"
-                >
-                  <Eye className="w-4.5 h-4.5" />
-                </button>
+                <div className="flex items-center justify-center gap-1">
+                  <button
+                    onClick={() => setSelectedLead(lead)}
+                    className="p-1.5 rounded-lg hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-colors inline-flex cursor-pointer"
+                    title="Inspect Lead"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLeadToDelete(lead);
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-rose-500/10 text-rose-500 hover:text-rose-700 transition-colors inline-flex cursor-pointer"
+                    title="Delete Lead"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
@@ -2191,7 +2366,17 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
                 </div>
 
                 {/* Modal Footer */}
-                <div className="p-5 border-t border-gray-100 dark:border-slate-800/80 bg-gray-50/50 dark:bg-slate-900/30 flex justify-end">
+                <div className="p-5 border-t border-gray-100 dark:border-slate-800/80 bg-gray-50/50 dark:bg-slate-900/30 flex justify-between items-center">
+                  <Button 
+                    type="button"
+                    onClick={() => setLeadToDelete(selectedLead)} 
+                    variant="danger" 
+                    size="sm"
+                    className="flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Lead
+                  </Button>
                   <Button onClick={() => setSelectedLead(null)} variant="outline" size="sm">
                     Close View
                   </Button>
@@ -2862,24 +3047,35 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
                   </div>
 
                   {/* Footer Buttons */}
-                  <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-800/50">
+                  <div className="flex justify-between items-center pt-4 border-t border-gray-100 dark:border-slate-800/50">
                     <Button
                       type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setViewedClientId(null);
-                        setIsEditingClient(false);
-                        setEditedClientFields({});
-                      }}
+                      variant="danger"
+                      onClick={() => setLeadToDelete(client)}
+                      className="flex items-center gap-1.5"
                     >
-                      Cancel
+                      <Trash2 className="w-4 h-4" />
+                      Delete Client
                     </Button>
-                    <Button
-                      type="submit"
-                      variant="primary"
-                    >
-                      Save Client Profile
-                    </Button>
+                    <div className="flex items-center gap-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setViewedClientId(null);
+                          setIsEditingClient(false);
+                          setEditedClientFields({});
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        variant="primary"
+                      >
+                        Save Client Profile
+                      </Button>
+                    </div>
                   </div>
 
                 </form>
@@ -2888,6 +3084,9 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
             </div>
           );
         })()}
+
+        {/* Delete Lead Confirmation Modal */}
+        {renderDeleteLeadModal()}
       </div>
     );
   }
@@ -2939,17 +3138,17 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
 const getMetricsModalTitleAndList = () => {
     switch (activeMetricsModal) {
       case 'total':
-        return { title: 'Total Clients', list: leads };
+        return { title: 'Total Clients', list: dateFilteredMetricsLeads };
       case 'non-allocated':
-        return { title: 'Non-Allocated Clients', list: leads.filter(l => !l.assignedTeam) };
+        return { title: 'Non-Allocated Clients', list: dateFilteredMetricsLeads.filter(l => !l.assignedTeam) };
       case 'allocated':
-        return { title: 'Allocated Clients', list: leads.filter(l => !!l.assignedTeam) };
+        return { title: 'Allocated Clients', list: dateFilteredMetricsLeads.filter(l => !!l.assignedTeam) };
       case 'claimed':
-        return { title: 'Claimed Tasks', list: leads.filter(l => l.assignedTo !== null) };
+        return { title: 'Claimed Tasks', list: dateFilteredMetricsLeads.filter(l => Boolean(l.assignedTo || l.assignedDeveloper || l.assignedDesigner || l.assignedAdSpecialist)) };
       case 'in-progress':
-        return { title: 'In-Progress Clients/Tasks', list: leads.filter(l => l.workflowStatus === 'In Progress') };
+        return { title: 'In-Progress Clients/Tasks', list: dateFilteredMetricsLeads.filter(l => l.workflowStatus === 'In Progress') };
       case 'completed':
-        return { title: 'Completed Clients/Tasks', list: leads.filter(l => l.workflowStatus === 'Completed') };
+        return { title: 'Completed Clients/Tasks', list: dateFilteredMetricsLeads.filter(l => l.workflowStatus === 'Completed') };
       default:
         return { title: '', list: [] };
     }
@@ -3153,20 +3352,159 @@ const handleClientFieldChange = (field, value) => {
         </div>
       </div>
 
+      {/* Metrics Section Header & Total Clients Date Filter */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white/40 dark:bg-slate-900/40 p-3.5 rounded-2xl border border-gray-150 dark:border-slate-800/60 shadow-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-650 dark:text-indigo-400 flex items-center justify-center shrink-0">
+            <Calendar className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider">
+                Metrics Date Filter
+              </span>
+              {(metricsStartDate || metricsEndDate) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                  <Clock className="w-3 h-3" />
+                  {metricsStartDate === metricsEndDate
+                    ? metricsStartDate
+                    : `${metricsStartDate || 'Start'} to ${metricsEndDate || 'Present'}`}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              Filter Total Clients and metrics dynamically by selected date or range
+            </p>
+          </div>
+        </div>
+
+        {/* Date Filter Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Presets */}
+          <div className="inline-flex items-center gap-1 bg-gray-100/90 dark:bg-slate-800/80 p-1 rounded-xl text-[11px] font-medium">
+            <button
+              type="button"
+              onClick={() => handleDatePreset('all')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                !metricsStartDate && !metricsEndDate
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              All Time
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDatePreset('today')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                metricsPreset === 'today'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDatePreset('week')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                metricsPreset === 'week'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              7 Days
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDatePreset('month')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                metricsPreset === 'month'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              This Month
+            </button>
+          </div>
+
+          {/* Date Pickers */}
+          <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-1 bg-white/90 dark:bg-slate-900/80 border border-gray-200 dark:border-slate-800 rounded-xl px-2 py-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400">From</span>
+              <input
+                type="date"
+                value={metricsStartDate}
+                onChange={(e) => {
+                  setMetricsStartDate(e.target.value);
+                  setMetricsPreset('custom');
+                }}
+                className="bg-transparent text-xs text-gray-900 dark:text-white outline-hidden cursor-pointer"
+              />
+            </div>
+            <span>–</span>
+            <div className="flex items-center gap-1 bg-white/90 dark:bg-slate-900/80 border border-gray-200 dark:border-slate-800 rounded-xl px-2 py-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400">To</span>
+              <input
+                type="date"
+                value={metricsEndDate}
+                onChange={(e) => {
+                  setMetricsEndDate(e.target.value);
+                  setMetricsPreset('custom');
+                }}
+                className="bg-transparent text-xs text-gray-900 dark:text-white outline-hidden cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Clear Button */}
+          {(metricsStartDate || metricsEndDate) && (
+            <button
+              type="button"
+              onClick={() => handleDatePreset('all')}
+              className="p-1.5 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 transition-colors text-xs font-semibold flex items-center gap-1 cursor-pointer"
+              title="Clear date filter"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Clear</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* 6-Card Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         
         {/* Total Clients Card */}
         <div 
           onClick={() => setActiveMetricsModal('total')}
-          className="glass-card p-4 rounded-xl flex items-center gap-4 border border-indigo-500/5 cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all animate-in fade-in duration-200"
+          className={`glass-card p-4 rounded-xl flex items-center gap-4 border cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all animate-in fade-in duration-200 ${
+            (metricsStartDate || metricsEndDate) ? 'border-indigo-500/50 bg-indigo-50/20 dark:bg-indigo-950/20 shadow-xs ring-1 ring-indigo-500/20' : 'border-indigo-500/5'
+          }`}
         >
-          <div className="p-3 bg-indigo-500/10 text-indigo-650 dark:text-indigo-400 rounded-xl">
+          <div className="p-3 bg-indigo-500/10 text-indigo-650 dark:text-indigo-400 rounded-xl shrink-0">
             <Users className="w-5 h-5" />
           </div>
-          <div>
-            <p className="text-[10px] font-bold text-gray-550 dark:text-gray-400 uppercase tracking-wider">Total Clients</p>
-            <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">{totalClientsCount}</p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] font-bold text-gray-550 dark:text-gray-400 uppercase tracking-wider truncate">Total Clients</p>
+              {(metricsStartDate || metricsEndDate) && (
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse shrink-0" title="Date filter active" />
+              )}
+            </div>
+            <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">
+              {dateFilteredMetricsLeads.length}
+              {(metricsStartDate || metricsEndDate) && (
+                <span className="text-xs font-normal text-gray-400 ml-1.5">
+                  / {totalClientsCount}
+                </span>
+              )}
+            </p>
+            {(metricsStartDate || metricsEndDate) && (
+              <span className="text-[9px] font-extrabold text-indigo-600 dark:text-indigo-400 block truncate mt-0.5">
+                Filtered by Date
+              </span>
+            )}
           </div>
         </div>
 
@@ -3175,13 +3513,13 @@ const handleClientFieldChange = (field, value) => {
           onClick={() => setActiveMetricsModal('non-allocated')}
           className="glass-card p-4 rounded-xl flex items-center gap-4 border border-rose-500/5 cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all animate-in fade-in duration-200"
         >
-          <div className="p-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl">
+          <div className="p-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl shrink-0">
             <Clock className="w-5 h-5" />
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-555 dark:text-gray-400 uppercase tracking-wider">Non-Allocated</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">
-              {leads.filter(l => !l.assignedTeam).length}
+              {dateFilteredMetricsLeads.filter(l => !l.assignedTeam).length}
             </p>
           </div>
         </div>
@@ -3191,13 +3529,13 @@ const handleClientFieldChange = (field, value) => {
           onClick={() => setActiveMetricsModal('allocated')}
           className="glass-card p-4 rounded-xl flex items-center gap-4 border border-blue-500/5 cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all animate-in fade-in duration-200"
         >
-          <div className="p-3 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl">
+          <div className="p-3 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl shrink-0">
             <Layers className="w-5 h-5" />
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-555 dark:text-gray-400 uppercase tracking-wider">Allocated</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">
-              {leads.filter(l => !!l.assignedTeam).length}
+              {dateFilteredMetricsLeads.filter(l => !!l.assignedTeam).length}
             </p>
           </div>
         </div>
@@ -3207,13 +3545,13 @@ const handleClientFieldChange = (field, value) => {
           onClick={() => setActiveMetricsModal('claimed')}
           className="glass-card p-4 rounded-xl flex items-center gap-4 border border-blue-500/5 cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all animate-in fade-in duration-200"
         >
-          <div className="p-3 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl">
+          <div className="p-3 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl shrink-0">
             <Sliders className="w-5 h-5" />
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-555 dark:text-gray-400 uppercase tracking-wider">Claimed Tasks</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">
-              {leads.filter(l => l.assignedTo !== null).length}
+              {dateFilteredMetricsLeads.filter(l => Boolean(l.assignedTo || l.assignedDeveloper || l.assignedDesigner || l.assignedAdSpecialist)).length}
             </p>
           </div>
         </div>
@@ -3223,13 +3561,13 @@ const handleClientFieldChange = (field, value) => {
           onClick={() => setActiveMetricsModal('in-progress')}
           className="glass-card p-4 rounded-xl flex items-center gap-4 border border-amber-500/5 cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all animate-in fade-in duration-200"
         >
-          <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
+          <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl shrink-0">
             <Clock className="w-5 h-5 animate-pulse" />
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-550 dark:text-gray-400 uppercase tracking-wider">In Progress</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">
-              {leads.filter(l => l.workflowStatus === 'In Progress').length}
+              {dateFilteredMetricsLeads.filter(l => l.workflowStatus === 'In Progress').length}
             </p>
           </div>
         </div>
@@ -3239,13 +3577,13 @@ const handleClientFieldChange = (field, value) => {
           onClick={() => setActiveMetricsModal('completed')}
           className="glass-card p-4 rounded-xl flex items-center gap-4 border border-emerald-500/5 cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all animate-in fade-in duration-200"
         >
-          <div className="p-3 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl">
+          <div className="p-3 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl shrink-0">
             <CheckCircle className="w-5 h-5" />
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-555 dark:text-gray-400 uppercase tracking-wider">Completed</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white mt-0.5">
-              {leads.filter(l => l.workflowStatus === 'Completed').length}
+              {dateFilteredMetricsLeads.filter(l => l.workflowStatus === 'Completed').length}
             </p>
           </div>
         </div>
@@ -3770,12 +4108,13 @@ const handleClientFieldChange = (field, value) => {
                 <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Business Number</th>
                 <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Assigned To</th>
                 <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Status</th>
+                <th className="p-3 font-bold text-center text-gray-700 dark:text-gray-300">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-slate-800/40 text-gray-750 dark:text-gray-355 font-medium">
               {filteredCentralClients.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="p-6 text-center text-gray-400 dark:text-gray-555 font-normal">
+                  <td colSpan="9" className="p-6 text-center text-gray-400 dark:text-gray-555 font-normal">
                     No clients found matching the selected filters.
                   </td>
                 </tr>
@@ -3889,6 +4228,33 @@ const handleClientFieldChange = (field, value) => {
                           </span>
                         );
                       })()}
+                    </td>
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setViewedClientId(client._id);
+                            setIsEditingClient(false);
+                            setEditedClientFields({});
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer"
+                          title="View & Edit Client"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLeadToDelete(client);
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-rose-500/10 text-rose-500 hover:text-rose-700 transition-colors cursor-pointer"
+                          title="Delete Client Lead"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -4300,7 +4666,14 @@ const handleClientFieldChange = (field, value) => {
         <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-slate-800/80">
           <div>
             <h3 className="text-base font-bold text-gray-900 dark:text-white">{title}</h3>
-            <p className="text-xs text-gray-400 dark:text-gray-550 mt-0.5">Showing {filteredList.length} matching client briefs</p>
+            <p className="text-xs text-gray-400 dark:text-gray-550 mt-0.5">
+              Showing {filteredList.length} matching client briefs
+              {(metricsStartDate || metricsEndDate) && (
+                <span className="font-semibold text-indigo-600 dark:text-indigo-400 ml-1.5">
+                  • Date Filter: {metricsStartDate === metricsEndDate ? metricsStartDate : `${metricsStartDate || 'Start'} to ${metricsEndDate || 'Present'}`}
+                </span>
+              )}
+            </p>
           </div>
           <button
             onClick={() => setActiveMetricsModal(null)}
@@ -4323,19 +4696,19 @@ const handleClientFieldChange = (field, value) => {
                 className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
               />
             </div>
-            <div className="relative sm:w-56">
+            <div className="relative sm:w-48">
               <Sliders className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <select
-  value={metricsStatusFilter}
-  onChange={(e) => setMetricsStatusFilter(e.target.value)}
-  className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 appearance-none cursor-pointer"
->
-  <option value="all">All Statuses</option>
-  <option value="active">Active</option>
-  <option value="expired">Expired</option>
-</select>
+                value={metricsStatusFilter}
+                onChange={(e) => setMetricsStatusFilter(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 appearance-none cursor-pointer"
+              >
+                <option value="all">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="expired">Expired</option>
+              </select>
             </div>
-            <div className="relative sm:w-56">
+            <div className="relative sm:w-48">
               <Users className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <select
                 value={metricsCreatedByFilter}
@@ -4348,17 +4721,50 @@ const handleClientFieldChange = (field, value) => {
                 ))}
               </select>
             </div>
-            {(metricsSearchTerm || metricsStatusFilter !== 'all' || metricsCreatedByFilter !== 'All') && (
+
+            {/* Date Range Inputs */}
+            <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+              <div className="flex items-center gap-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                <span className="text-[10px] uppercase font-bold text-gray-400">From</span>
+                <input
+                  type="date"
+                  value={metricsStartDate}
+                  onChange={(e) => {
+                    setMetricsStartDate(e.target.value);
+                    setMetricsPreset('custom');
+                  }}
+                  className="bg-transparent text-xs text-gray-900 dark:text-white outline-hidden cursor-pointer"
+                />
+              </div>
+              <span>–</span>
+              <div className="flex items-center gap-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                <span className="text-[10px] uppercase font-bold text-gray-400">To</span>
+                <input
+                  type="date"
+                  value={metricsEndDate}
+                  onChange={(e) => {
+                    setMetricsEndDate(e.target.value);
+                    setMetricsPreset('custom');
+                  }}
+                  className="bg-transparent text-xs text-gray-900 dark:text-white outline-hidden cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {(metricsSearchTerm || metricsStatusFilter !== 'all' || metricsCreatedByFilter !== 'All' || metricsStartDate || metricsEndDate) && (
               <button
                 type="button"
                 onClick={() => {
                   setMetricsSearchTerm('');
                   setMetricsStatusFilter('all');
                   setMetricsCreatedByFilter('All');
+                  setMetricsStartDate('');
+                  setMetricsEndDate('');
+                  setMetricsPreset('all');
                 }}
-                className="py-2 px-3 text-sm font-semibold rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all cursor-pointer whitespace-nowrap"
+                className="py-2 px-3 text-sm font-semibold rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all cursor-pointer whitespace-nowrap"
               >
-                Reset Filters
+                Clear Filters
               </button>
             )}
           </div>
@@ -5160,24 +5566,35 @@ const handleClientFieldChange = (field, value) => {
                 </div>
 
                 {/* Footer Buttons */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-800/50">
+                <div className="flex justify-between items-center pt-4 border-t border-gray-100 dark:border-slate-800/50">
                   <Button
                     type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setViewedClientId(null);
-                      setIsEditingClient(false);
-                      setEditedClientFields({});
-                    }}
+                    variant="danger"
+                    onClick={() => setLeadToDelete(client)}
+                    className="flex items-center gap-1.5"
                   >
-                    Cancel
+                    <Trash2 className="w-4 h-4" />
+                    Delete Client
                   </Button>
-                  <Button
-                    type="submit"
-                    variant="primary"
-                  >
-                    Save Client Profile
-                  </Button>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setViewedClientId(null);
+                        setIsEditingClient(false);
+                        setEditedClientFields({});
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                    >
+                      Save Client Profile
+                    </Button>
+                  </div>
                 </div>
 
               </form>
@@ -6448,6 +6865,9 @@ const handleClientFieldChange = (field, value) => {
           </div>
         </div>
       )}
+
+      {/* Delete Lead Confirmation Modal */}
+      {renderDeleteLeadModal()}
 
     </div>
   );

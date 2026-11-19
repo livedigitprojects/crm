@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../middleware/authMiddleware');
+const { protect, adminOnly } = require('../middleware/authMiddleware');
 const {
   getLeads,
   getLeadById,
@@ -16,10 +16,10 @@ const {
 router.get('/', protect, getLeads);
 router.get('/:id/messages', protect, getLeadMessages);
 router.get('/:id', protect, getLeadById);
-router.put('/assign', protect, assignLeads);
+router.put('/assign', protect, adminOnly, assignLeads);
 router.post('/', protect, createLead);
 router.put('/:id', protect, updateLead);
-router.delete('/:id', protect, deleteLead);
+router.delete('/:id', protect, adminOnly, deleteLead);
 router.post('/:id/sync', protect, syncLead);
 router.post('/:id/messages', protect, addLeadMessage);
 

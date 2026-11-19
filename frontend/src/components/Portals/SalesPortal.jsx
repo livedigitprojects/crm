@@ -30,7 +30,9 @@ import {
   ChevronDown,
   LayoutDashboard,
   Menu,
-  ListChecks
+  ListChecks,
+  Calendar,
+  BarChart3
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -326,12 +328,52 @@ export default function SalesPortal({
   const [metricsSearchTerm, setMetricsSearchTerm] = useState('');
   const [metricsStatusFilter, setMetricsStatusFilter] = useState('all');
   const [metricsCreatedByFilter, setMetricsCreatedByFilter] = useState('All');
+  const [metricsStartDate, setMetricsStartDate] = useState('');
+  const [metricsEndDate, setMetricsEndDate] = useState('');
+  const [metricsPreset, setMetricsPreset] = useState('all');
+
+  // Helper for setting date filter presets on metrics
+  const handleDatePreset = (preset) => {
+    setMetricsPreset(preset);
+    const now = new Date();
+    const formatYMD = (d) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    if (preset === 'today') {
+      const todayStr = formatYMD(now);
+      setMetricsStartDate(todayStr);
+      setMetricsEndDate(todayStr);
+    } else if (preset === 'yesterday') {
+      const yest = new Date(now);
+      yest.setDate(yest.getDate() - 1);
+      const yestStr = formatYMD(yest);
+      setMetricsStartDate(yestStr);
+      setMetricsEndDate(yestStr);
+    } else if (preset === 'week') {
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 6);
+      setMetricsStartDate(formatYMD(weekAgo));
+      setMetricsEndDate(formatYMD(now));
+    } else if (preset === 'month') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      setMetricsStartDate(formatYMD(monthStart));
+      setMetricsEndDate(formatYMD(now));
+    } else if (preset === 'all') {
+      setMetricsStartDate('');
+      setMetricsEndDate('');
+    }
+  };
+
   // Reset search/filter whenever a different metrics card is opened/closed
   useEffect(() => {
-  setMetricsSearchTerm('');
-  setMetricsStatusFilter('all');
-  setMetricsCreatedByFilter('All');
-}, [activeMetricsModal]);
+    setMetricsSearchTerm('');
+    setMetricsStatusFilter('all');
+    setMetricsCreatedByFilter('All');
+  }, [activeMetricsModal]);
 
   // Central Clients Management filter states
   const [clientSearchQuery, setClientSearchQuery] = useState('');
@@ -929,39 +971,58 @@ usePolling(fetchLeads, 30000);
   };
 
 
+  // Filter leads for the Metrics cards section based on selected date or date range
+  const dateFilteredSalespersonLeads = useMemo(() => {
+    if (!metricsStartDate && !metricsEndDate) return salespersonLeads;
+    return salespersonLeads.filter((lead) => {
+      const createdRaw = lead.createdAt || lead.timestamp;
+      if (!createdRaw) return false;
+      const created = new Date(createdRaw);
+
+      if (metricsStartDate) {
+        const [sy, sm, sd] = metricsStartDate.split('-').map(Number);
+        const start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+        if (created < start) return false;
+      }
+
+      if (metricsEndDate) {
+        const [ey, em, ed] = metricsEndDate.split('-').map(Number);
+        const end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+        if (created > end) return false;
+      }
+
+      return true;
+    });
+  }, [salespersonLeads, metricsStartDate, metricsEndDate]);
+
+  const dateFilteredAllocatedSalespersonLeads = useMemo(() => {
+    return dateFilteredSalespersonLeads.filter(l => l.workflowStatus && l.workflowStatus !== 'Non-Allocated');
+  }, [dateFilteredSalespersonLeads]);
+
+  const nonAllocatedClientsCount = dateFilteredSalespersonLeads.filter(l => (l.workflowStatus || 'Non-Allocated') === 'Non-Allocated').length;
+  const allocatedClientsCount = dateFilteredAllocatedSalespersonLeads.length;
+  const inProgressProjectsCount = dateFilteredAllocatedSalespersonLeads.filter(l => l.workflowStatus === 'In Progress').length;
+  const pendingProjectsCount = dateFilteredAllocatedSalespersonLeads.filter(l => l.workflowStatus === 'Allocated' || l.workflowStatus === 'Pending').length;
+  const completedProjectsCount = dateFilteredAllocatedSalespersonLeads.filter(l => l.workflowStatus === 'Completed').length;
+
   const getMetricsModalTitleAndList = () => {
     switch (activeMetricsModal) {
       case 'total':
-        return { title: 'Total Clients', list: salespersonLeads };
+        return { title: 'Total Clients', list: dateFilteredSalespersonLeads };
       case 'non-allocated':
-        return { title: 'Non-Allocated Clients', list: salespersonLeads.filter(l => (l.workflowStatus || 'Non-Allocated') === 'Non-Allocated') };
+        return { title: 'Non-Allocated Clients', list: dateFilteredSalespersonLeads.filter(l => (l.workflowStatus || 'Non-Allocated') === 'Non-Allocated') };
       case 'allocated':
-        return { title: 'Allocated Clients', list: allocatedSalespersonLeads };
+        return { title: 'Allocated Clients', list: dateFilteredAllocatedSalespersonLeads };
       case 'in-progress':
-        return { title: 'In-Progress Clients (Awaiting Claim)', list: allocatedSalespersonLeads.filter(l => l.workflowStatus === 'Allocated') };
+        return { title: 'In-Progress Clients (Claimed, Work Underway)', list: dateFilteredAllocatedSalespersonLeads.filter(l => l.workflowStatus === 'In Progress') };
       case 'pending':
-        return { title: 'Pending Clients (Claimed, Work Underway)', list: allocatedSalespersonLeads.filter(l => l.workflowStatus === 'In Progress') };
+        return { title: 'Pending Clients (Awaiting Claim)', list: dateFilteredAllocatedSalespersonLeads.filter(l => l.workflowStatus === 'Allocated' || l.workflowStatus === 'Pending') };
       case 'completed':
-        return { title: 'Completed Clients/Tasks', list: allocatedSalespersonLeads.filter(l => l.workflowStatus === 'Completed') };
+        return { title: 'Completed Clients/Tasks', list: dateFilteredAllocatedSalespersonLeads.filter(l => l.workflowStatus === 'Completed') };
       default:
         return { title: '', list: [] };
     }
   };
-
-  // Sales dashboard lifecycle, driven directly by workflowStatus (the same field the
-  // Client Workflow table uses):
-  //   Non-Allocated -> Allocated (routed to a team, nobody has claimed it yet -> shown
-  //   under "In Progress") -> claimed by the technical team, work underway -> shown under
-  //   "Pending" (workflowStatus flips to 'In Progress' the instant it's claimed) -> Completed.
-  // "Allocated" is the umbrella count of every client that has left Non-Allocated; the
-  // In Progress / Pending / Completed cards are mutually-exclusive sub-stages of it, so
-  // they always sum back to the Allocated total.
-  const allocatedSalespersonLeads = salespersonLeads.filter(l => l.workflowStatus && l.workflowStatus !== 'Non-Allocated');
-  const nonAllocatedClientsCount = salespersonLeads.filter(l => (l.workflowStatus || 'Non-Allocated') === 'Non-Allocated').length;
-  const allocatedClientsCount = allocatedSalespersonLeads.length;
-  const inProgressProjectsCount = allocatedSalespersonLeads.filter(l => l.workflowStatus === 'Allocated').length;
-  const pendingProjectsCount = allocatedSalespersonLeads.filter(l => l.workflowStatus === 'In Progress').length;
-  const completedProjectsCount = allocatedSalespersonLeads.filter(l => l.workflowStatus === 'Completed').length;
 
   // Personal performance service metrics
   let totalTasks = 0;
@@ -1070,18 +1131,158 @@ usePolling(fetchLeads, 30000);
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <div 
-          onClick={() => setActiveMetricsModal('total')}
-          className="glass-card p-4 rounded-xl flex items-center gap-4 border border-indigo-500/5 cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all"
-        >
-          <div className="p-3 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl">
-            <Users className="w-5 h-5" />
+      {/* Metrics Section Header & Date Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white/40 dark:bg-slate-900/40 p-3.5 rounded-2xl border border-gray-150 dark:border-slate-800/60 shadow-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-650 dark:text-indigo-400 flex items-center justify-center shrink-0">
+            <Calendar className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Clients</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">{totalMyClients}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider">
+                Metrics Date Filter
+              </span>
+              {(metricsStartDate || metricsEndDate) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                  <Clock className="w-3 h-3" />
+                  {metricsStartDate === metricsEndDate
+                    ? metricsStartDate
+                    : `${metricsStartDate || 'Start'} to ${metricsEndDate || 'Present'}`}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              Filter Total Clients and metrics dynamically by selected date or range
+            </p>
+          </div>
+        </div>
+
+        {/* Date Filter Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Presets */}
+          <div className="inline-flex items-center gap-1 bg-gray-100/90 dark:bg-slate-800/80 p-1 rounded-xl text-[11px] font-medium">
+            <button
+              type="button"
+              onClick={() => handleDatePreset('all')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                !metricsStartDate && !metricsEndDate
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              All Time
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDatePreset('today')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                metricsPreset === 'today'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDatePreset('week')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                metricsPreset === 'week'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              7 Days
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDatePreset('month')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                metricsPreset === 'month'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              This Month
+            </button>
+          </div>
+
+          {/* Date Pickers */}
+          <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-1 bg-white/90 dark:bg-slate-900/80 border border-gray-200 dark:border-slate-800 rounded-xl px-2 py-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400">From</span>
+              <input
+                type="date"
+                value={metricsStartDate}
+                onChange={(e) => {
+                  setMetricsStartDate(e.target.value);
+                  setMetricsPreset('custom');
+                }}
+                className="bg-transparent text-xs text-gray-900 dark:text-white outline-hidden cursor-pointer"
+              />
+            </div>
+            <span>–</span>
+            <div className="flex items-center gap-1 bg-white/90 dark:bg-slate-900/80 border border-gray-200 dark:border-slate-800 rounded-xl px-2 py-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400">To</span>
+              <input
+                type="date"
+                value={metricsEndDate}
+                onChange={(e) => {
+                  setMetricsEndDate(e.target.value);
+                  setMetricsPreset('custom');
+                }}
+                className="bg-transparent text-xs text-gray-900 dark:text-white outline-hidden cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Clear Button */}
+          {(metricsStartDate || metricsEndDate) && (
+            <button
+              type="button"
+              onClick={() => handleDatePreset('all')}
+              className="p-1.5 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 transition-colors text-xs font-semibold flex items-center gap-1 cursor-pointer"
+              title="Clear date filter"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Clear</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Metrics Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {/* Total Clients Card */}
+        <div 
+          onClick={() => setActiveMetricsModal('total')}
+          className={`glass-card p-4 rounded-xl flex items-center gap-4 border cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all ${
+            (metricsStartDate || metricsEndDate) ? 'border-indigo-500/50 bg-indigo-50/20 dark:bg-indigo-950/20 shadow-xs ring-1 ring-indigo-500/20' : 'border-indigo-500/5'
+          }`}
+        >
+          <div className="p-3 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl shrink-0">
+            <Users className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider truncate">Total Clients</p>
+              {(metricsStartDate || metricsEndDate) && (
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse shrink-0" title="Date filter active" />
+              )}
+            </div>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
+              {dateFilteredSalespersonLeads.length}
+              {(metricsStartDate || metricsEndDate) && (
+                <span className="text-xs font-normal text-gray-400 ml-1.5">
+                  / {totalMyClients}
+                </span>
+              )}
+            </p>
+            {(metricsStartDate || metricsEndDate) && (
+              <span className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 block truncate mt-0.5">
+                Filtered by Date
+              </span>
+            )}
           </div>
         </div>
 
@@ -1968,7 +2169,14 @@ return matchesSearch && matchesStatus && matchesCreatedBy;
                 <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-slate-800/80">
                   <div>
                     <h3 className="text-base font-bold text-gray-900 dark:text-white">{title}</h3>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Showing {filteredList.length} matching client briefs</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                      Showing {filteredList.length} matching client briefs
+                      {(metricsStartDate || metricsEndDate) && (
+                        <span className="font-semibold text-indigo-600 dark:text-indigo-400 ml-1.5">
+                          • Date Filter: {metricsStartDate === metricsEndDate ? metricsStartDate : `${metricsStartDate || 'Start'} to ${metricsEndDate || 'Present'}`}
+                        </span>
+                      )}
+                    </p>
                   </div>
                   <button 
                     onClick={() => setActiveMetricsModal(null)}
@@ -1991,31 +2199,77 @@ return matchesSearch && matchesStatus && matchesCreatedBy;
                         className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                       />
                     </div>
-                    <div className="relative sm:w-56">
-  <Sliders className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-  <select
-    value={metricsStatusFilter}
-    onChange={(e) => setMetricsStatusFilter(e.target.value)}
-    className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 appearance-none cursor-pointer"
-  >
-    <option value="all">All Statuses</option>
-    <option value="active">Active</option>
-    <option value="expired">Expired</option>
-  </select>
-</div>
-<div className="relative sm:w-56">
-  <Users className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-  <select
-    value={metricsCreatedByFilter}
-    onChange={(e) => setMetricsCreatedByFilter(e.target.value)}
-    className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 appearance-none cursor-pointer"
-  >
-    <option value="All">All Creators</option>
-    {salespersonsList.map(sp => (
-      <option key={sp._id || sp.id} value={sp.name}>{sp.name}</option>
-    ))}
-  </select>
-</div>
+                    <div className="relative sm:w-48">
+                      <Sliders className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <select
+                        value={metricsStatusFilter}
+                        onChange={(e) => setMetricsStatusFilter(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 appearance-none cursor-pointer"
+                      >
+                        <option value="all">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="expired">Expired</option>
+                      </select>
+                    </div>
+                    <div className="relative sm:w-48">
+                      <Users className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <select
+                        value={metricsCreatedByFilter}
+                        onChange={(e) => setMetricsCreatedByFilter(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 appearance-none cursor-pointer"
+                      >
+                        <option value="All">All Creators</option>
+                        {salespersonsList.map(sp => (
+                          <option key={sp._id || sp.id} value={sp.name}>{sp.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Date Range Inputs */}
+                    <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                      <div className="flex items-center gap-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                        <span className="text-[10px] uppercase font-bold text-gray-400">From</span>
+                        <input
+                          type="date"
+                          value={metricsStartDate}
+                          onChange={(e) => {
+                            setMetricsStartDate(e.target.value);
+                            setMetricsPreset('custom');
+                          }}
+                          className="bg-transparent text-xs text-gray-900 dark:text-white outline-hidden cursor-pointer"
+                        />
+                      </div>
+                      <span>–</span>
+                      <div className="flex items-center gap-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                        <span className="text-[10px] uppercase font-bold text-gray-400">To</span>
+                        <input
+                          type="date"
+                          value={metricsEndDate}
+                          onChange={(e) => {
+                            setMetricsEndDate(e.target.value);
+                            setMetricsPreset('custom');
+                          }}
+                          className="bg-transparent text-xs text-gray-900 dark:text-white outline-hidden cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    {(metricsSearchTerm || metricsStatusFilter !== 'all' || metricsCreatedByFilter !== 'All' || metricsStartDate || metricsEndDate) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMetricsSearchTerm('');
+                          setMetricsStatusFilter('all');
+                          setMetricsCreatedByFilter('All');
+                          setMetricsStartDate('');
+                          setMetricsEndDate('');
+                          setMetricsPreset('all');
+                        }}
+                        className="py-2 px-3 text-sm font-semibold rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        Clear Filters
+                      </button>
+                    )}
                   </div>
                 )}
 

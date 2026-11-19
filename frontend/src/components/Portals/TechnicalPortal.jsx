@@ -630,7 +630,7 @@ usePolling(fetchAssignedLeads, 30000);
         const postersAllDone = !hasPosters || postersStatus === 'Completed';
         const videosAllDone = !hasVideos || videosStatus === 'Completed';
         const allPostingsDone = postersAllDone && videosAllDone;
-        updatePayload.designTeamStatus = allPostingsDone ? 'Completed' : 'Pending';
+        updatePayload.designTeamStatus = allPostingsDone ? 'Completed' : 'In Progress';
         updatePayload.workflowStatus = allPostingsDone ? 'Completed' : 'In Progress';
 
       } else if (user?.team === 'ads') {

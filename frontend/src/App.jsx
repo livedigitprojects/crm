@@ -9,10 +9,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from './context/AuthContext';
 import Card from './components/UI/Card';
 
-// Portals
-import SalesPortal from './components/Portals/SalesPortal';
-import AdminPortal from './components/Portals/AdminPortal';
-import TechnicalPortal from './components/Portals/TechnicalPortal';
+// Lazy-loaded Portals for performance & code-splitting
+const SalesPortal = React.lazy(() => import('./components/Portals/SalesPortal'));
+const AdminPortal = React.lazy(() => import('./components/Portals/AdminPortal'));
+const TechnicalPortal = React.lazy(() => import('./components/Portals/TechnicalPortal'));
 
 
 export default function App() {
@@ -254,28 +254,35 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {user.role === 'salesperson' ? (
-                <SalesPortal 
-                  notifications={notifications}
-                  setNotifications={setNotifications}
-                  onAddToast={addToast}
-                  onAddNotification={addNotification}
-                />
-              ) : user.role === 'technical' ? (
-                <TechnicalPortal 
-                  notifications={notifications}
-                  setNotifications={setNotifications}
-                  onAddToast={addToast}
-                  onAddNotification={addNotification}
-                />
-              ) : (
-                <AdminPortal 
-                  notifications={notifications}
-                  setNotifications={setNotifications}
-                  onAddToast={addToast}
-                  onAddNotification={addNotification}
-                />
-              )}
+              <React.Suspense fallback={
+                <div className="flex flex-col items-center justify-center min-h-[420px] gap-3 text-gray-500 dark:text-gray-400">
+                  <div className="w-9 h-9 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs font-semibold animate-pulse tracking-wide">Loading Workspace...</span>
+                </div>
+              }>
+                {user.role === 'salesperson' ? (
+                  <SalesPortal 
+                    notifications={notifications}
+                    setNotifications={setNotifications}
+                    onAddToast={addToast}
+                    onAddNotification={addNotification}
+                  />
+                ) : user.role === 'technical' ? (
+                  <TechnicalPortal 
+                    notifications={notifications}
+                    setNotifications={setNotifications}
+                    onAddToast={addToast}
+                    onAddNotification={addNotification}
+                  />
+                ) : (
+                  <AdminPortal 
+                    notifications={notifications}
+                    setNotifications={setNotifications}
+                    onAddToast={addToast}
+                    onAddNotification={addNotification}
+                  />
+                )}
+              </React.Suspense>
             </motion.div>
           )}
         </AnimatePresence>

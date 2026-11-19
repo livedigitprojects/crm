@@ -366,5 +366,15 @@ postingsVideosPending: {
 // TTL index to automatically delete client records after 1 year (31536000 seconds)
 leadSchema.index({ createdAt: 1 }, { expireAfterSeconds: 31536000 });
 
+// Query Performance Indexes to reduce database CPU usage and optimize sorting/filtering
+leadSchema.index({ createdAt: -1 });
+leadSchema.index({ clientId: 1 });
+leadSchema.index({ salesperson: 1, createdAt: -1 });
+leadSchema.index({ workflowStatus: 1 });
+leadSchema.index({ assignedTo: 1 });
+leadSchema.index({ assignedDeveloper: 1 });
+leadSchema.index({ assignedDesigner: 1 });
+leadSchema.index({ assignedAdSpecialist: 1 });
+
 const Lead = mongoose.model('Lead', leadSchema);
 module.exports = Lead;
