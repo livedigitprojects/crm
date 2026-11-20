@@ -5,6 +5,8 @@ const {
   getLeads,
   getLeadById,
   assignLeads,
+  bulkClaimLeads,
+  bulkUnclaimLeads,
   createLead,
   updateLead,
   deleteLead,
@@ -14,10 +16,12 @@ const {
 } = require('../controllers/leadController');
 
 router.get('/', protect, getLeads);
-router.get('/:id/messages', protect, getLeadMessages);
-router.get('/:id', protect, getLeadById);
+router.post('/bulk-claim', protect, bulkClaimLeads);
+router.post('/bulk-unclaim', protect, bulkUnclaimLeads);
 router.put('/assign', protect, adminOnly, assignLeads);
 router.post('/', protect, createLead);
+router.get('/:id/messages', protect, getLeadMessages);
+router.get('/:id', protect, getLeadById);
 router.put('/:id', protect, updateLead);
 router.delete('/:id', protect, adminOnly, deleteLead);
 router.post('/:id/sync', protect, syncLead);

@@ -1,16 +1,13 @@
 import React from 'react';
-import { TextArea } from '../UI/Input';
 import { 
   User, 
-  Briefcase, 
   Layers, 
   ShieldCheck, 
   DollarSign, 
-  CalendarRange, 
   Globe
 } from 'lucide-react';
 
-export default function StepReviewSubmit({ register, watch, errors, formValues: propFormValues }) {
+export default function StepReviewSubmit({ register, watch, formValues: propFormValues }) {
   const watchedFormValues = watch();
   const formValues = propFormValues || watchedFormValues;
 

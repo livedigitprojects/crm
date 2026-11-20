@@ -25,7 +25,7 @@ const bars = {
 
 export default function ToastContainer({ toasts = [], removeToast }) {
   return (
-    <div className="fixed top-4 right-4 z-100 flex flex-col gap-3 max-w-sm w-[calc(100%-2rem)] sm:w-96 pointer-events-none">
+    <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[999999] flex flex-col items-center gap-2.5 max-w-md w-[calc(100%-2rem)] sm:w-[440px] pointer-events-none">
       <AnimatePresence>
         {toasts.map((toast) => {
           const type = toast.type || 'info';
@@ -33,14 +33,14 @@ export default function ToastContainer({ toasts = [], removeToast }) {
           return (
             <motion.div
               key={toast.id}
-              initial={{ opacity: 0, x: 48, scale: 0.95 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-              exit={{ opacity: 0, x: 48, scale: 0.92, transition: { duration: 0.2 } }}
+              initial={{ opacity: 0, y: -24, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+              exit={{ opacity: 0, y: -20, scale: 0.92, transition: { duration: 0.2 } }}
               layout
-              className="pointer-events-auto relative overflow-hidden flex items-start gap-3 p-4 pl-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-200/80 dark:border-slate-800 shadow-xl"
+              className="pointer-events-auto relative overflow-hidden flex items-start gap-3 p-4 pl-5 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-gray-200/90 dark:border-slate-700/80 shadow-2xl w-full"
             >
-              <span className={`absolute left-0 top-0 bottom-0 w-1 ${bars[type]}`} />
+              <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${bars[type]}`} />
               <motion.span
                 className={`absolute left-0 bottom-0 h-0.5 ${bars[type]} opacity-60`}
                 initial={{ width: '100%' }}
@@ -50,20 +50,20 @@ export default function ToastContainer({ toasts = [], removeToast }) {
               <div className={`p-1.5 rounded-lg shrink-0 ${accents[type]}`}>
                 <Icon className="w-4 h-4" />
               </div>
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 text-left">
                 {toast.title && (
-                  <h4 className="text-sm font-semibold leading-tight text-gray-900 dark:text-white">
+                  <h4 className="text-sm font-bold leading-tight text-gray-900 dark:text-white">
                     {toast.title}
                   </h4>
                 )}
-                <p className="text-xs mt-1 text-gray-600 dark:text-gray-400 leading-normal wrap-break-word">
+                <p className="text-xs mt-1 text-gray-600 dark:text-gray-300 leading-normal break-words font-medium">
                   {toast.message}
                 </p>
               </div>
               <button
                 onClick={() => removeToast(toast.id)}
                 aria-label="Dismiss notification"
-                className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 rounded-lg p-1 cursor-pointer shrink-0"
+                className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 rounded-lg p-1 cursor-pointer shrink-0 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>

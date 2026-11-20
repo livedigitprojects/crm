@@ -2952,13 +2952,8 @@ usePolling(fetchLeadsOnly, 30000, { immediate: false });
                                 type="checkbox"
                                 checked={isChecked}
                                 onChange={(e) => {
-                                  let nextTeams = [];
                                   const baseTeams = Array.isArray(currentTeams) ? currentTeams : (currentTeams ? [currentTeams] : []);
-                                  if (e.target.checked) {
-                                    nextTeams = [...baseTeams, team];
-                                  } else {
-                                    nextTeams = baseTeams.filter(t => t !== team);
-                                  }
+                                  const nextTeams = e.target.checked ? [...baseTeams, team] : baseTeams.filter(t => t !== team);
                                   handleClientFieldChange('assignedTeam', nextTeams);
                                 }}
                                 className="rounded border-gray-200 dark:border-slate-800 text-indigo-650"
@@ -5471,13 +5466,8 @@ const handleClientFieldChange = (field, value) => {
                               type="checkbox"
                               checked={isChecked}
                               onChange={(e) => {
-                                let nextTeams = [];
                                 const baseTeams = Array.isArray(currentTeams) ? currentTeams : (currentTeams ? [currentTeams] : []);
-                                if (e.target.checked) {
-                                  nextTeams = [...baseTeams, team];
-                                } else {
-                                  nextTeams = baseTeams.filter(t => t !== team);
-                                }
+                                const nextTeams = e.target.checked ? [...baseTeams, team] : baseTeams.filter(t => t !== team);
                                 handleClientFieldChange('assignedTeam', nextTeams);
                               }}
                               className="rounded border-gray-200 dark:border-slate-800 text-indigo-650"

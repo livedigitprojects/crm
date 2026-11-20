@@ -22,7 +22,11 @@ import {
   ClipboardList,
   Calendar,
   Trash2,
-  Plus
+  Plus,
+  UserX,
+  ArrowLeft,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Card from '../UI/Card';
@@ -189,11 +193,17 @@ export default function TechnicalPortal({
   const [activeMetricsModal, setActiveMetricsModal] = useState(null);
   const [metricsSearchTerm, setMetricsSearchTerm] = useState('');
   const [metricsStatusFilter, setMetricsStatusFilter] = useState('all');
+  const [metricsDetailLeadId, setMetricsDetailLeadId] = useState(null);
+  const [selectedUnclaimedIds, setSelectedUnclaimedIds] = useState([]);
+  const [selectedClaimedIds, setSelectedClaimedIds] = useState([]);
+  const [isBulkClaiming, setIsBulkClaiming] = useState(false);
+  const [isBulkUnclaiming, setIsBulkUnclaiming] = useState(false);
 
-  // Reset search/filter whenever a different metrics card is opened/closed
+  // Reset search/filter and detail view whenever a different metrics card is opened/closed
   useEffect(() => {
     setMetricsSearchTerm('');
     setMetricsStatusFilter('all');
+    setMetricsDetailLeadId(null);
   }, [activeMetricsModal]);
   const [editWorkflowStatus, setEditWorkflowStatus] = useState('Allocated');
   const [showNotifications, setShowNotifications] = useState(false);
@@ -792,6 +802,115 @@ usePolling(fetchAssignedLeads, 30000);
     }
   };
 
+  const handleUnclaimClick = async (lead) => {
+    const leadId = lead._id || lead.id;
+    setIsLoading(true);
+    try {
+      const res = await authFetch(`/api/leads/${leadId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ unclaim: true })
+      });
+      if (res.ok) {
+        onAddToast('Task Unclaimed', `Task for ${lead.clientName} has been returned to the unclaimed queue.`, 'info');
+        await fetchAssignedLeads();
+      } else {
+        const errData = await res.json();
+        onAddToast('Unclaim Failed', errData.message || 'Error unclaiming task.', 'error');
+      }
+    } catch (error) {
+      console.error('Unclaim lead error:', error);
+      onAddToast('Unclaim Failed', 'Network or server error during unclaim.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleSelectUnclaimed = (leadId) => {
+    setSelectedUnclaimedIds(prev => 
+      prev.includes(leadId) ? prev.filter(id => id !== leadId) : [...prev, leadId]
+    );
+  };
+
+  const handleToggleSelectAllUnclaimed = () => {
+    const allIds = unclaimedLeads.map(l => l._id || l.id);
+    if (selectedUnclaimedIds.length === allIds.length && allIds.length > 0) {
+      setSelectedUnclaimedIds([]);
+    } else {
+      setSelectedUnclaimedIds(allIds);
+    }
+  };
+
+  const handleBulkClaimSelected = async () => {
+    if (selectedUnclaimedIds.length === 0) {
+      onAddToast('No Tasks Selected', 'Please select at least one task to claim.', 'warning');
+      return;
+    }
+    setIsBulkClaiming(true);
+    try {
+      const res = await authFetch('/api/leads/bulk-claim', {
+        method: 'POST',
+        body: JSON.stringify({ leadIds: selectedUnclaimedIds })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onAddToast('Tasks Claimed', data.message || `Successfully claimed ${selectedUnclaimedIds.length} tasks.`, 'success');
+        setSelectedUnclaimedIds([]);
+        await fetchAssignedLeads();
+      } else {
+        const errData = await res.json();
+        onAddToast('Claim Failed', errData.message || 'Error claiming tasks in bulk.', 'error');
+      }
+    } catch (error) {
+      console.error('Bulk claim error:', error);
+      onAddToast('Claim Failed', 'Network or server error during bulk claim.', 'error');
+    } finally {
+      setIsBulkClaiming(false);
+    }
+  };
+
+  const handleToggleSelectClaimed = (leadId) => {
+    setSelectedClaimedIds(prev => 
+      prev.includes(leadId) ? prev.filter(id => id !== leadId) : [...prev, leadId]
+    );
+  };
+
+  const handleToggleSelectAllClaimed = () => {
+    const allIds = claimedLeads.map(l => l._id || l.id);
+    if (selectedClaimedIds.length === allIds.length && allIds.length > 0) {
+      setSelectedClaimedIds([]);
+    } else {
+      setSelectedClaimedIds(allIds);
+    }
+  };
+
+  const handleBulkUnclaimSelected = async () => {
+    if (selectedClaimedIds.length === 0) {
+      onAddToast('No Tasks Selected', 'Please select at least one task to unclaim.', 'warning');
+      return;
+    }
+    setIsBulkUnclaiming(true);
+    try {
+      const res = await authFetch('/api/leads/bulk-unclaim', {
+        method: 'POST',
+        body: JSON.stringify({ leadIds: selectedClaimedIds })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onAddToast('Tasks Unclaimed', data.message || `Successfully returned ${selectedClaimedIds.length} tasks to unclaimed queue.`, 'info');
+        setSelectedClaimedIds([]);
+        await fetchAssignedLeads();
+      } else {
+        const errData = await res.json();
+        onAddToast('Unclaim Failed', errData.message || 'Error unclaiming tasks.', 'error');
+      }
+    } catch (error) {
+      console.error('Bulk unclaim error:', error);
+      onAddToast('Unclaim Failed', 'Network or server error during bulk unclaim.', 'error');
+    } finally {
+      setIsBulkUnclaiming(false);
+    }
+  };
+
   // Reset the social-credentials edit draft whenever a different client dossier is opened/closed
   useEffect(() => {
     setIsEditingSocials(false);
@@ -982,6 +1101,7 @@ usePolling(fetchAssignedLeads, 30000);
   }), [filteredLeads, user?.team, userId]);
 
   useEffect(() => {
+    if (metricsDetailLeadId) return;
     if (filteredLeads.length > 0) {
       const exists = filteredLeads.some(l => (l._id || l.id) === selectedLeadId);
       if (!exists) {
@@ -991,7 +1111,7 @@ usePolling(fetchAssignedLeads, 30000);
     } else {
       setSelectedLeadId(null);
     }
-  }, [filteredLeads, claimedLeads, unclaimedLeads, selectedLeadId]);
+  }, [filteredLeads, claimedLeads, unclaimedLeads, selectedLeadId, metricsDetailLeadId]);
 
   const filteredCentralClients = useMemo(() => {
     return leads.filter(lead => {
@@ -1059,60 +1179,781 @@ usePolling(fetchAssignedLeads, 30000);
   }
 
   const renderLeadCard = (lead, isClaimed) => {
-  const leadId = lead._id || lead.id;
-  const isSelected = leadId === selectedLeadId;
-  return (
-    <div
-      key={leadId}
-      onClick={() => handleSelectLead(leadId)}
-      className={`p-3.5 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
-        isSelected
-          ? 'border-indigo-500 bg-indigo-500/5 dark:bg-indigo-500/10 shadow-sm'
-          : 'border-gray-200/80 dark:border-slate-800/40 bg-white/60 hover:bg-slate-500/3 dark:bg-slate-900/20 dark:hover:bg-slate-900/40'
-      }`}
-    >
-      {isSelected && <div className="absolute top-0 left-0 bottom-0 w-1 bg-indigo-500" />}
-      <div className="space-y-1.5 pl-1.5">
-        <div className="flex items-center justify-between">
-          <button
-            onClick={(e) => { e.stopPropagation(); setViewedClientId(leadId); }}
-            className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 font-mono hover:underline cursor-pointer"
+    const leadId = lead._id || lead.id;
+    const isSelected = leadId === selectedLeadId;
+    const isChecked = isClaimed 
+      ? selectedClaimedIds.includes(leadId) 
+      : selectedUnclaimedIds.includes(leadId);
+
+    return (
+      <div
+        key={leadId}
+        onClick={() => handleSelectLead(leadId)}
+        className={`p-3.5 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden group ${
+          isSelected
+            ? 'border-indigo-500 bg-indigo-500/5 dark:bg-indigo-500/10 shadow-sm'
+            : 'border-gray-200/80 dark:border-slate-800/40 bg-white/60 hover:bg-slate-500/3 dark:bg-slate-900/20 dark:hover:bg-slate-900/40'
+        }`}
+      >
+        {isSelected && <div className="absolute top-0 left-0 bottom-0 w-1 bg-indigo-500" />}
+        <div className="flex items-start gap-2.5">
+          {/* Selection Checkbox */}
+          <div 
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isClaimed) handleToggleSelectClaimed(leadId);
+              else handleToggleSelectUnclaimed(leadId);
+            }}
+            className="pt-0.5 cursor-pointer text-gray-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors"
+            title={isClaimed ? "Select for bulk unclaim" : "Select for bulk claim"}
           >
-            {lead.clientId || 'N/A'}
-          </button>
-          <div className="flex items-center gap-1.5">
-            {(() => {
-              const badge = getPaymentStatus(lead);
-              return <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-md ${badge.color}`}>{badge.label}</span>;
-            })()}
-            {(() => {
-              const expiryStatus = getExpiryStatus(lead.deliveryDeadline);
-              if (expiryStatus) return <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-md ${expiryStatus.color}`}>{expiryStatus.label}</span>;
-              return null;
-            })()}
-            {(() => {
-              const deadlineAlert = checkDeadlineAlert(lead.deliveryDeadline, lead.workflowStatus);
-              if (deadlineAlert) return <span className={`text-[8.5px] font-extrabold px-1 py-0.5 rounded-md ${deadlineAlert.color}`}>{deadlineAlert.label}</span>;
-              return null;
-            })()}
+            {isChecked ? (
+              <CheckSquare className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            ) : (
+              <Square className="w-4 h-4" />
+            )}
+          </div>
+
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <div className="flex items-center justify-between gap-1 flex-wrap">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setViewedClientId(leadId); }}
+                className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 font-mono hover:underline cursor-pointer"
+              >
+                {lead.clientId || 'N/A'}
+              </button>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(() => {
+                  const badge = getPaymentStatus(lead);
+                  return <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-md ${badge.color}`}>{badge.label}</span>;
+                })()}
+                {(() => {
+                  const expiryStatus = getExpiryStatus(lead.deliveryDeadline);
+                  if (expiryStatus) return <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-md ${expiryStatus.color}`}>{expiryStatus.label}</span>;
+                  return null;
+                })()}
+                {(() => {
+                  const deadlineAlert = checkDeadlineAlert(lead.deliveryDeadline, lead.workflowStatus);
+                  if (deadlineAlert) return <span className={`text-[8.5px] font-extrabold px-1 py-0.5 rounded-md ${deadlineAlert.color}`}>{deadlineAlert.label}</span>;
+                  return null;
+                })()}
+              </div>
+            </div>
+
+            <h4 className="text-xs font-bold text-gray-900 dark:text-white truncate">{lead.clientName}</h4>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+              {lead.companyName || 'No Company'} • {lead.businessCategory || 'No Category'}
+            </p>
+
+            <div className="flex items-center justify-between text-[9px] text-gray-405 dark:text-gray-550 font-semibold pt-1 border-t border-gray-100/60 dark:border-slate-800/40">
+              <span>Created By: <strong>{lead.salespersonName || '—'}</strong></span>
+              <span>Deadline: <strong className="text-rose-500 dark:text-rose-400">{lead.deliveryDeadline || '-'}</strong></span>
+            </div>
+
+            {/* Quick Action Footer in Left Sidebar */}
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[9px] text-gray-400 font-medium">
+                {isClaimed ? (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Claimed
+                  </span>
+                ) : (
+                  <span className="text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Unclaimed
+                  </span>
+                )}
+              </span>
+
+              {isClaimed ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleUnclaimClick(lead);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer shadow-xs"
+                  title="Unclaim task and return to pool"
+                >
+                  <UserX className="w-3.5 h-3.5" />
+                  Unclaim
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAcceptClick(lead);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 transition-all cursor-pointer shadow-xs"
+                  title="Claim task and begin work"
+                >
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Claim
+                </button>
+              )}
+            </div>
           </div>
         </div>
-        <h4 className="text-xs font-bold text-gray-900 dark:text-white truncate">{lead.clientName}</h4>
-        <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
-          {lead.companyName || 'No Company'} • {lead.businessCategory || 'No Category'}
-        </p>
-        <div className="flex items-end justify-between mt-1">
-          <p className="text-[9px] text-gray-405 dark:text-gray-550 font-semibold">
-            Created By: {lead.salespersonName}
-          </p>
-          <p className="text-[9px] text-gray-405 dark:text-gray-550 font-semibold whitespace-nowrap">
-            Deadline: <span className="text-rose-500 dark:text-rose-400 font-bold">{lead.deliveryDeadline || '-'}</span>
-          </p>
+      </div>
+    );
+  };
+
+  const renderCampaignDetailPanel = (lead, isModalView = false, onBackToList = null) => {
+    if (!lead) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center py-16 text-center">
+          <AlertCircle className="w-12 h-12 text-gray-300 dark:text-slate-750 mb-3" />
+          <p className="text-sm font-semibold text-gray-400 dark:text-slate-500">Select a campaign card from the list to view specifications.</p>
+        </div>
+      );
+    }
+
+    const leadId = lead._id || lead.id;
+    const teamAssignee = user?.team === 'developer' ? lead.assignedDeveloper
+      : user?.team === 'design' ? lead.assignedDesigner
+      : user?.team === 'ads' ? lead.assignedAdSpecialist
+      : lead.assignedTo;
+    const isClaimed = !!teamAssignee;
+
+    const totalReq = Number(lead.postersRequired || 0) + Number(lead.videosRequired || 0) + Number(lead.adsRequired || 0) + (lead.websiteRequired ? 1 : 0);
+    const currentPostersPending = Number(lead.postersPending ?? (lead.postersStatus === 'Completed' ? 0 : lead.postersRequired || 0));
+    const currentVideosPending = Number(lead.videosPending ?? (lead.videosStatus === 'Completed' ? 0 : lead.videosRequired || 0));
+    const currentAdsPending = Number(lead.adsPending ?? (lead.adsStatus === 'Completed' ? 0 : lead.adsRequired || 0));
+    const currentWebsitePending = lead.websiteRequired ? (lead.websiteStatus === 'Completed' ? 0 : 1) : 0;
+    const pendingReq = currentPostersPending + currentVideosPending + currentAdsPending + currentWebsitePending;
+    const completedReq = totalReq - pendingReq;
+
+    return (
+      <div className={`space-y-5 flex-1 flex flex-col justify-between ${isModalView ? 'max-w-5xl mx-auto w-full' : ''}`}>
+        <div className="space-y-5">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 border-b border-gray-200/50 dark:border-slate-800/40 pb-4">
+            <div className="space-y-1">
+              {isModalView && onBackToList && (
+                <div className="mb-2">
+                  <button
+                    type="button"
+                    onClick={onBackToList}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-xs font-bold text-gray-700 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer shadow-xs"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Back to Tasks List
+                  </button>
+                </div>
+              )}
+              <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                {lead.clientId && (
+                  <span className="text-indigo-650 dark:text-indigo-400 font-mono font-bold">
+                    [{lead.clientId}]
+                  </span>
+                )}
+                {lead.clientName}
+                {(() => {
+                  const payStatus = lead.paymentStatus || (Number(lead.planAmount || 0) > 0 && Number(lead.advanceAmount || 0) >= Number(lead.planAmount || 0) ? 'Paid' : (Number(lead.advanceAmount || 0) > 0 ? 'Partial' : 'Unpaid'));
+                  if (payStatus === 'Paid') return <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 ml-2">Full Payment Done</span>;
+                  if (payStatus === 'Partial') return <span className="text-xs font-bold text-amber-600 dark:text-amber-400 ml-2">Partial Payment Done</span>;
+                  return <span className="text-xs font-bold text-rose-600 dark:text-rose-400 ml-2">Payment Unpaid</span>;
+                })()}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{lead.companyName || 'No Company'} • {lead.businessCategory || 'No Category'}</p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-555 font-medium">Created By: <span className="text-gray-700 dark:text-gray-300 font-semibold">{lead.salespersonName || '—'}</span></p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {!isClaimed ? (
+                <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/15 px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-wider animate-pulse">
+                  Unclaimed Task
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleUnclaimClick(lead)}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer shadow-xs"
+                  title="Unclaim this task and return to pool"
+                >
+                  <UserX className="w-3 h-3" />
+                  Unclaim Task
+                </button>
+              )}
+              {(() => {
+                const perTeam = getPerTeamStatusBadges(lead);
+                if (perTeam && perTeam.length > 0) {
+                  const sc = (s) => s === 'Completed' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/15'
+                    : s === 'In Progress' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/15'
+                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/15';
+                  return (
+                    <div className="flex flex-wrap gap-1">
+                      {perTeam.map((t, i) => (
+                        <span key={i} className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border uppercase tracking-wider ${sc(t.status)}`}>
+                          {t.label}: {t.status}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                }
+                return (
+                  <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border uppercase tracking-wider ${
+                    lead.workflowStatus === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-500/15 dark:bg-emerald-950/40 dark:text-emerald-300'
+                    : lead.workflowStatus === 'In Progress' ? 'bg-indigo-50 text-indigo-700 border-indigo-500/15 dark:bg-indigo-950/40 dark:text-indigo-300'
+                    : 'bg-amber-50 text-amber-700 border-amber-500/15 dark:bg-amber-955/40 dark:text-amber-300'
+                  }`}>
+                    {getStatusLabel(lead.workflowStatus)}
+                  </span>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* Details Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[380px] overflow-y-auto pr-1">
+            {/* Contact & Registration */}
+            <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-2.5">
+              <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider">Contact & Registration</h4>
+              <div className="text-xs space-y-2 text-gray-750 dark:text-gray-300 font-medium">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  <span>Registered: <strong>{new Date(lead.createdAt || lead.timestamp).toLocaleDateString()}</strong></span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  <span className="truncate">Email: <strong>{lead.email || '—'}</strong></span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  <span>Business Number:
+                    <a href={`https://wa.me/${(lead.mobileNumber || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-indigo-650 dark:text-indigo-400 hover:underline font-bold ml-1">
+                      {lead.mobileNumber}
+                    </a>
+                  </span>
+                </div>  
+              </div>
+            </div>
+
+            {/* Project Specifications */}
+            <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-2.5">
+              <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider">Project Specifications</h4>
+              <div className="text-xs space-y-2 text-gray-750 dark:text-gray-300 font-medium">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 shrink-0">Brand Colors:</span>
+                  <strong>{lead.brandColors || '—'}</strong>
+                  {lead.brandColors && <span className="w-3.5 h-3.5 rounded-full border border-gray-205 shrink-0" style={{ backgroundColor: lead.brandColors }} />}
+                </div>
+            
+                <div><span className="text-gray-400">Competitors:</span> <strong>{lead.competitors || '—'}</strong></div>
+                <div className="flex justify-between items-center text-[10px] pt-1 border-t border-gray-100 dark:border-slate-805/40">
+                  <span>Start: <strong>{lead.startDate || '—'}</strong></span>
+                  <span className="flex items-center gap-1.5">
+                    Deadline: <strong className="text-rose-500 font-bold">{lead.deliveryDeadline || '—'}</strong>
+                    {(() => {
+                      const deadlineAlert = checkDeadlineAlert(lead.deliveryDeadline, lead.workflowStatus);
+                      if (deadlineAlert) return <span className={`text-[8.5px] font-extrabold px-1 py-0.5 rounded-md ${deadlineAlert.color}`}>{deadlineAlert.label}</span>;
+                      return null;
+                    })()}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Campaign Deliverables Checklist */}
+            <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-2.5 md:col-span-2">
+              <div className="flex justify-between items-center">
+                <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider">Campaign Deliverables Checklist</h4>
+                <span className="text-[10px] text-gray-405 font-bold">Overall progress: {completedReq}/{totalReq} completed</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {Number(lead.postersRequired) > 0 && (
+                  <div className="flex items-center justify-between p-2 bg-indigo-500/3 dark:bg-indigo-500/1 border border-indigo-500/5 rounded-lg">
+                    <span className="text-gray-700 dark:text-gray-300">Posters: <strong>{lead.postersRequired} required</strong></span>
+                    <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-gray-500 font-bold">{lead.postersStatus} ({Number(lead.postersRequired) - currentPostersPending} Done)</span>
+                  </div>
+                )}
+                {Number(lead.videosRequired) > 0 && (
+                  <div className="flex items-center justify-between p-2 bg-blue-500/3 dark:bg-blue-500/1 border border-blue-500/5 rounded-lg">
+                    <span className="text-gray-700 dark:text-gray-300">Videos: <strong>{lead.videosRequired} required</strong></span>
+                    <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-gray-500 font-bold">{lead.videosStatus} ({Number(lead.videosRequired) - currentVideosPending} Done)</span>
+                  </div>
+                )}
+                {(Number(lead.adsRequired) > 0 || (lead.platforms && lead.platforms.length > 0)) && (
+                  <div className="flex flex-col gap-1.5 p-2 bg-pink-500/3 dark:bg-pink-500/1 border border-pink-500/5 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-700 dark:text-gray-300">Ads/Campaigns: <strong>{lead.adsRequired > 0 ? `${lead.adsRequired} required` : 'Service only'}</strong></span>
+                      {Number(lead.adsRequired) > 0 && (
+                        <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-gray-500 font-bold">{lead.adsStatus} ({Number(lead.adsRequired) - currentAdsPending} Done)</span>
+                      )}
+                    </div>
+                    {lead.platforms && lead.platforms.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {lead.platforms.map((platform, idx) => (
+                          <span key={idx} className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10">{platform}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {lead.websiteRequired && (
+                  <div className="flex items-center justify-between p-2 bg-purple-500/3 dark:bg-purple-500/1 border border-purple-500/5 rounded-lg sm:col-span-2">
+                    <span className="text-gray-700 dark:text-gray-300">Website: <strong>{lead.websiteType || 'General'} Dev</strong></span>
+                    <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-gray-500 font-bold">{lead.websiteStatus} ({lead.websiteStatus === 'Completed' ? '1' : '0'}/1 Done)</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Postings Card — Ads Team internal tracking only */}
+            {user?.team === 'ads' && isClaimed && (Number(lead.postersRequired) > 0 || Number(lead.videosRequired) > 0) && (
+              <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-3 md:col-span-2">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider">Postings</h4>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold">Ads Team Internal Tracking</span>
+                </div>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-relaxed">
+                  Track how many posters and videos have been posted on client channels. This status is internal to the Ads Team and does not affect the Design Team's progress.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {Number(lead.postersRequired) > 0 && (
+                    <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-gray-800 dark:text-gray-200">Posters Posting</span>
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">{lead.postersRequired} total</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Posting Status</label>
+                          <select
+                            value={postingsPostersStatus}
+                            onChange={(e) => setPostingsPostersStatus(e.target.value)}
+                            className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs"
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="Completed">Completed</option>
+                          </select>
+                        </div>
+                        {postingsPostersStatus === 'Pending' && (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max={lead.postersRequired}
+                              value={postingsPostersPending}
+                              onChange={(e) => setPostingsPostersPending(Math.min(Number(lead.postersRequired), Math.max(0, Number(e.target.value))))}
+                              className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {Number(lead.videosRequired) > 0 && (
+                    <div className="p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-gray-800 dark:text-gray-200">Videos Posting</span>
+                        <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold">{lead.videosRequired} total</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Posting Status</label>
+                          <select
+                            value={postingsVideosStatus}
+                            onChange={(e) => setPostingsVideosStatus(e.target.value)}
+                            className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs"
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="Completed">Completed</option>
+                          </select>
+                        </div>
+                        {postingsVideosStatus === 'Pending' && (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max={lead.videosRequired}
+                              value={postingsVideosPending}
+                              onChange={(e) => setPostingsVideosPending(Math.min(Number(lead.videosRequired), Math.max(0, Number(e.target.value))))}
+                              className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Notes */}
+            {lead.notes && (
+              <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-3 md:col-span-2">
+                <div className="text-xs space-y-1">
+                  <h5 className="font-bold text-gray-405 text-[10px] uppercase tracking-wider">Salesperson Instructions</h5>
+                  <p className="p-2.5 bg-yellow-500/5 dark:bg-yellow-550/2 border border-yellow-500/10 text-yellow-800 dark:text-yellow-300 rounded-lg leading-relaxed font-semibold">{lead.notes}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Action Area */}
+        <div className="border-t border-gray-200/50 dark:border-slate-800/40 pt-4 mt-2">
+          {!isClaimed ? (
+            <div className="p-4 bg-amber-500/5 border border-dashed border-amber-500/20 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-left">
+                <h4 className="text-xs font-bold text-gray-900 dark:text-white">This project is unclaimed</h4>
+                <p className="text-[10px] text-gray-500 dark:text-gray-405 mt-0.5 leading-normal">Accept the client campaign to start tracking task milestones and saving progress updates.</p>
+              </div>
+              <Button variant="primary" size="sm" onClick={() => handleAcceptClick(lead)} icon={CheckCircle} className="shrink-0 w-full sm:w-auto cursor-pointer shadow-sm">
+                Accept Client
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleSaveUpdates} className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 max-h-[300px] overflow-y-auto pr-1">
+                {user?.team !== 'developer' && user?.team !== 'ads' && user?.team !== 'design' && (
+                  <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-2">
+                    <label className="text-xs font-bold text-gray-900 dark:text-white block">Workflow Status</label>
+                    <select
+                      value={editWorkflowStatus}
+                      onChange={(e) => setEditWorkflowStatus(e.target.value)}
+                      className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs"
+                    >
+                      <option value="Allocated">Pending</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Completed">Completed</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Posters */}
+                {Number(lead.postersRequired) > 0 && user?.team !== 'ads' && (
+                  <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-gray-900 dark:text-white">Posters Progress</span>
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400">Total: {lead.postersRequired} required</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-405 font-bold">Status</label>
+                        <select value={postersStatus} onChange={(e) => setPostersStatus(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer">
+                          <option value="Pending">Pending</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                      {postersStatus === 'Pending' && (
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
+                          <input type="number" min="0" max={lead.postersRequired} value={postersPending} onChange={(e) => setPostersPending(Math.min(Number(lead.postersRequired), Math.max(0, Number(e.target.value))))} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Videos */}
+                {Number(lead.videosRequired) > 0 && user?.team !== 'ads' && (
+                  <div className="p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-gray-900 dark:text-white">Videos Progress</span>
+                      <span className="text-[10px] text-blue-650 dark:text-blue-400">Total: {lead.videosRequired} required</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-405 font-bold">Status</label>
+                        <select value={videosStatus} onChange={(e) => setVideosStatus(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer">
+                          <option value="Pending">Pending</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                      {videosStatus === 'Pending' && (
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
+                          <input type="number" min="0" max={lead.videosRequired} value={videosPending} onChange={(e) => setVideosPending(Math.min(Number(lead.videosRequired), Math.max(0, Number(e.target.value))))} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Ads */}
+                {Number(lead.adsRequired) > 0 && user?.team !== 'ads' && (
+                  <div className="p-3 bg-pink-500/5 border border-pink-500/10 rounded-xl space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-gray-900 dark:text-white">Ads Progress</span>
+                      <span className="text-[10px] text-pink-650 dark:text-pink-400">Total: {lead.adsRequired} required</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-405 font-bold">Status</label>
+                        <select value={adsStatus} onChange={(e) => setAdsStatus(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer">
+                          <option value="Pending">Pending</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                      {adsStatus !== 'Completed' && adsStatus !== 'Pending' && (
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
+                          <input type="number" min="0" max={lead.adsRequired} value={adsPending} onChange={(e) => setAdsPending(Math.min(Number(lead.adsRequired), Math.max(0, Number(e.target.value))))} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Website */}
+                {lead.websiteRequired && user?.team !== 'developer' && (
+                  <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-gray-900 dark:text-white">Website Dev</span>
+                      <span className="text-[10px] text-purple-650 dark:text-purple-400">{lead.websiteType || 'General'} website</span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-gray-405 font-bold">Website Status</label>
+                      <select value={websiteStatus} onChange={(e) => setWebsiteStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer">
+                        <option value="Pending">Pending</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Ads Team Section */}
+              {(user?.team === 'ads' || user?.team === 'all') && !!selectedLead?.assignedAdSpecialist && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Ads Campaign — Plan Information</h4>
+
+                  {(Number(lead.adBudgetPerDay || 0) > 0 || lead.targetAudience) && (
+                    <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl space-y-2">
+                      {Number(lead.adBudgetPerDay || 0) > 0 && (
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-gray-500 dark:text-gray-400 font-semibold">Budget Per Day:</span>
+                          <strong className="text-pink-600 dark:text-pink-400">₹{lead.adBudgetPerDay}/day</strong>
+                        </div>
+                      )}
+                      {lead.targetAudience && (
+                        <div className="text-xs">
+                          <span className="text-[10px] text-gray-400 font-bold block mb-1 uppercase tracking-wider">Target Audience</span>
+                          <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{lead.targetAudience}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {Number(lead.metaAdsPlanDuration || 0) > 0 && (
+                    <div className="p-3 bg-indigo-500/5 border border-indigo-500/15 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">Meta Ads</span>
+                        <span className="text-[10px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold">{lead.metaAdsPlanDuration} Days</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
+                        <input type="date" value={editMetaStart} onChange={(e) => setEditMetaStart(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer" />
+                      </div>
+                      {editMetaStart && (
+                        <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-indigo-500/10">
+                          <span className="text-gray-400">End Date:</span>
+                          <strong className="text-indigo-600 dark:text-indigo-400">
+                            {(() => { const d = new Date(editMetaStart); d.setDate(d.getDate() + Number(lead.metaAdsPlanDuration)); return d.toLocaleDateString('en-IN'); })()}
+                          </strong>
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
+                        <select value={editMetaStatus} onChange={(e) => setEditMetaStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
+                          <option value="Pending">Pending</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {Number(lead.googleAdsPlanDuration || 0) > 0 && (
+                    <div className="p-3 bg-emerald-500/5 border border-emerald-500/15 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">Google Ads</span>
+                        <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold">{lead.googleAdsPlanDuration} Days</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
+                        <input type="date" value={editGoogleStart} onChange={(e) => setEditGoogleStart(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer" />
+                      </div>
+                      {editGoogleStart && (
+                        <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-emerald-500/10">
+                          <span className="text-gray-400">End Date:</span>
+                          <strong className="text-emerald-600 dark:text-emerald-400">
+                            {(() => { const d = new Date(editGoogleStart); d.setDate(d.getDate() + Number(lead.googleAdsPlanDuration)); return d.toLocaleDateString('en-IN'); })()}
+                          </strong>
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
+                        <select value={editGoogleStatus} onChange={(e) => setEditGoogleStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
+                          <option value="Pending">Pending</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {Number(lead.youtubeAdsPlanDuration || 0) > 0 && (
+                    <div className="p-3 bg-rose-500/5 border border-rose-500/15 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-rose-600 dark:text-rose-400">YouTube Ads</span>
+                        <span className="text-[10px] bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded-full font-bold">{lead.youtubeAdsPlanDuration} Days</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
+                        <input
+                          type="date"
+                          value={editYoutubeStart}
+                          onChange={(e) => setEditYoutubeStart(e.target.value)}
+                          className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer"
+                        />
+                      </div>
+                      {editYoutubeStart && (
+                        <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-rose-500/10">
+                          <span className="text-gray-400">End Date:</span>
+                          <strong className="text-rose-600 dark:text-rose-400">
+                            {(() => {
+                              const d = new Date(editYoutubeStart);
+                              d.setDate(d.getDate() + Number(lead.youtubeAdsPlanDuration));
+                              return d.toLocaleDateString('en-IN');
+                            })()}
+                          </strong>
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
+                        <select
+                          value={editYoutubeStatus}
+                          onChange={(e) => setEditYoutubeStatus(e.target.value)}
+                          className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs"
+                        >
+                          <option value="Pending">Pending</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {Number(lead.linkedinAdsPlanDuration || 0) > 0 && (
+                    <div className="p-3 bg-blue-500/5 border border-blue-500/15 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400">LinkedIn Ads</span>
+                        <span className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-bold">{lead.linkedinAdsPlanDuration} Days</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
+                        <input type="date" value={editLinkedinStart} onChange={(e) => setEditLinkedinStart(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer" />
+                      </div>
+                      {editLinkedinStart && (
+                        <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-blue-500/10">
+                          <span className="text-gray-400">End Date:</span>
+                          <strong className="text-blue-600 dark:text-blue-400">
+                            {(() => { const d = new Date(editLinkedinStart); d.setDate(d.getDate() + Number(lead.linkedinAdsPlanDuration)); return d.toLocaleDateString('en-IN'); })()}
+                          </strong>
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
+                        <select value={editLinkedinStatus} onChange={(e) => setEditLinkedinStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
+                          <option value="Pending">Pending</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {Number(lead.seoPlanDuration || 0) > 0 && (
+                    <div className="p-3 bg-teal-500/5 border border-teal-500/15 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-teal-600 dark:text-teal-400">SEO</span>
+                        <span className="text-[10px] bg-teal-500/10 text-teal-600 dark:text-teal-400 px-2 py-0.5 rounded-full font-bold">{lead.seoPlanDuration} Days</span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
+                        <input type="date" value={editSeoStart} onChange={(e) => setEditSeoStart(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer" />
+                      </div>
+                      {editSeoStart && (
+                        <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-teal-500/10">
+                          <span className="text-gray-400">End Date:</span>
+                          <strong className="text-teal-600 dark:text-teal-400">
+                            {(() => { const d = new Date(editSeoStart); d.setDate(d.getDate() + Number(lead.seoPlanDuration)); return d.toLocaleDateString('en-IN'); })()}
+                          </strong>
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
+                        <select value={editSeoStatus} onChange={(e) => setEditSeoStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
+                          <option value="Pending">Pending</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {lead.platforms && lead.platforms.includes('GMB') && (
+                    <div className="p-3 bg-amber-500/5 border border-amber-500/15 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-600 dark:text-amber-400">GMB — Google Business Profile</span>
+                        <span className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">One-Time</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 dark:text-gray-555">One-time implementation — no campaign duration or dates required.</p>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Status</label>
+                        <select value={editGmbStatus} onChange={(e) => setEditGmbStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
+                          <option value="Pending">Pending</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Dev Team Status */}
+              {(user?.team === 'developer' || user?.team === 'all') && (
+                <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl space-y-2">
+                  <label className="text-xs font-bold text-gray-900 dark:text-white block">Development Team Status</label>
+                  {user?.team === 'developer' && (
+                    <p className="text-[10px] text-gray-400 dark:text-gray-555">
+                      Updating this also syncs the overall workflow and website status automatically.
+                    </p>
+                  )}
+                  <select value={editDevTeamStatus} onChange={(e) => setEditDevTeamStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
+                    <option value="Pending">Pending</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3 pt-2">
+                <Button type="button" variant="outline" className="w-1/3" onClick={handleCancelEdit}>Reset</Button>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="w-1/3 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30 border-rose-200 dark:border-rose-900/50" 
+                  icon={UserX} 
+                  onClick={() => handleUnclaimClick(lead)}
+                >
+                  Unclaim Task
+                </Button>
+                <Button type="submit" variant="primary" className="w-1/3" isLoading={isSubmitting} icon={Save}>Save Changes</Button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        {/* Collaboration Chat */}
+        <div className="border-t border-gray-200/50 dark:border-slate-800/40 pt-4">
+          <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider mb-2">Collaboration Chat</h4>
+          <ClientChat leadId={leadId} />
         </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
   const getGridColsClass = () => {
     const team = user?.team;
@@ -1505,26 +2346,70 @@ if (team === 'ads') return 'grid grid-cols-1 sm:grid-cols-1 max-w-xs gap-4';
 
               <div className="flex-1 overflow-y-auto max-h-[1200px] space-y-4 pr-1.5 scrollbar-thin">
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between border-b border-gray-150/40 dark:border-slate-800/40 pb-1.5">
+                  <div className="flex items-center justify-between border-b border-gray-150/40 dark:border-slate-800/40 pb-2 flex-wrap gap-1">
                     <span className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                       Unclaimed Tasks ({unclaimedLeads.length})
                     </span>
+                    {unclaimedLeads.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        <button
+                          type="button"
+                          onClick={handleToggleSelectAllUnclaimed}
+                          className="text-[10px] font-bold text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 px-2 py-0.5 rounded border border-gray-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 cursor-pointer transition-colors shadow-xs"
+                        >
+                          {selectedUnclaimedIds.length === unclaimedLeads.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                        {selectedUnclaimedIds.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleBulkClaimSelected}
+                            disabled={isBulkClaiming}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-2.5 py-0.5 rounded-lg shadow-sm cursor-pointer disabled:opacity-50 transition-colors"
+                          >
+                            <CheckCircle className="w-3 h-3" />
+                            Claim Selected ({selectedUnclaimedIds.length})
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                   {unclaimedLeads.length === 0
-                    ? <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center py-2">No unclaimed tasks in queue.</p>
+                    ? <p className="text-[11px] text-gray-400 dark:text-gray-550 text-center py-2">No unclaimed tasks in queue.</p>
                     : <div className="space-y-2">{unclaimedLeads.map((lead) => renderLeadCard(lead, false))}</div>
                   }
                 </div>
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between border-b border-gray-150/40 dark:border-slate-800/40 pb-1.5">
+                  <div className="flex items-center justify-between border-b border-gray-150/40 dark:border-slate-800/40 pb-2 flex-wrap gap-1">
                     <span className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-500" />
                       Claimed Tasks ({claimedLeads.length})
                     </span>
+                    {claimedLeads.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        <button
+                          type="button"
+                          onClick={handleToggleSelectAllClaimed}
+                          className="text-[10px] font-bold text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 px-2 py-0.5 rounded border border-gray-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 cursor-pointer transition-colors shadow-xs"
+                        >
+                          {selectedClaimedIds.length === claimedLeads.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                        {selectedClaimedIds.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleBulkUnclaimSelected}
+                            disabled={isBulkUnclaiming}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-white bg-rose-600 hover:bg-rose-700 px-2.5 py-0.5 rounded-lg shadow-sm cursor-pointer disabled:opacity-50 transition-colors"
+                          >
+                            <UserX className="w-3 h-3" />
+                            Unclaim Selected ({selectedClaimedIds.length})
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                   {claimedLeads.length === 0
-                    ? <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center py-2">No claimed tasks yet.</p>
+                    ? <p className="text-[11px] text-gray-400 dark:text-gray-550 text-center py-2">No claimed tasks yet.</p>
                     : <div className="space-y-2">{claimedLeads.map((lead) => renderLeadCard(lead, true))}</div>
                   }
                 </div>
@@ -1533,658 +2418,7 @@ if (team === 'ads') return 'grid grid-cols-1 sm:grid-cols-1 max-w-xs gap-4';
 
             {/* Right Column - Client Details Panel */}
             <div className="w-full lg:w-[65%] flex flex-col gap-4 bg-gray-50/50 dark:bg-slate-955/10 p-5 rounded-2xl border border-gray-150/40 dark:border-slate-800/40" id="update-milestone-panel">
-              {(() => {
-                const lead = selectedLead;
-                if (!lead) {
-                  return (
-                    <div className="flex-1 flex flex-col items-center justify-center py-16 text-center">
-                      <AlertCircle className="w-12 h-12 text-gray-300 dark:text-slate-750 mb-3" />
-                      <p className="text-sm font-semibold text-gray-400 dark:text-slate-500">Select a campaign card from the list to view specifications.</p>
-                    </div>
-                  );
-                }
-
-                const leadId = lead._id || lead.id;
-                const teamAssignee = user?.team === 'developer' ? lead.assignedDeveloper
-                  : user?.team === 'design' ? lead.assignedDesigner
-                  : user?.team === 'ads' ? lead.assignedAdSpecialist
-                  : lead.assignedTo;
-                const isClaimed = !!teamAssignee;
-
-                const totalReq = Number(lead.postersRequired || 0) + Number(lead.videosRequired || 0) + Number(lead.adsRequired || 0) + (lead.websiteRequired ? 1 : 0);
-                const currentPostersPending = Number(lead.postersPending ?? (lead.postersStatus === 'Completed' ? 0 : lead.postersRequired || 0));
-                const currentVideosPending = Number(lead.videosPending ?? (lead.videosStatus === 'Completed' ? 0 : lead.videosRequired || 0));
-                const currentAdsPending = Number(lead.adsPending ?? (lead.adsStatus === 'Completed' ? 0 : lead.adsRequired || 0));
-                const currentWebsitePending = lead.websiteRequired ? (lead.websiteStatus === 'Completed' ? 0 : 1) : 0;
-                const pendingReq = currentPostersPending + currentVideosPending + currentAdsPending + currentWebsitePending;
-                const completedReq = totalReq - pendingReq;
-
-                return (
-                  <div className="space-y-5 flex-1 flex flex-col justify-between">
-                    <div className="space-y-5">
-                      {/* Header */}
-                      <div className="flex flex-col sm:flex-row justify-between items-start gap-4 border-b border-gray-200/50 dark:border-slate-800/40 pb-4">
-                        <div className="space-y-1">
-                          <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                            {lead.clientId && (
-                              <button type="button" onClick={() => setViewedClientId(lead._id || lead.id)} className="text-indigo-650 dark:text-indigo-400 font-mono font-bold hover:underline cursor-pointer focus:outline-hidden">
-                                [{lead.clientId}]
-                              </button>
-                            )}
-                            {lead.clientName}
-                            {(() => {
-                              const payStatus = lead.paymentStatus || (Number(lead.planAmount || 0) > 0 && Number(lead.advanceAmount || 0) >= Number(lead.planAmount || 0) ? 'Paid' : (Number(lead.advanceAmount || 0) > 0 ? 'Partial' : 'Unpaid'));
-                              if (payStatus === 'Paid') return <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 ml-2">Full Payment Done</span>;
-                              if (payStatus === 'Partial') return <span className="text-xs font-bold text-amber-600 dark:text-amber-400 ml-2">Partial Payment Done</span>;
-                              return <span className="text-xs font-bold text-rose-600 dark:text-rose-400 ml-2">Payment Unpaid</span>;
-                            })()}
-                          </h3>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{lead.companyName || 'No Company'} • {lead.businessCategory || 'No Category'}</p>
-                          <p className="text-[11px] text-gray-400 dark:text-gray-500 font-medium">Created By: <span className="text-gray-700 dark:text-gray-300 font-semibold">{lead.salespersonName || '—'}</span></p>
-                        </div>
-                        <div className="flex flex-wrap items-end gap-2">
-                          {!isClaimed && (
-                            <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/15 px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-wider animate-pulse">
-                              Unclaimed Task
-                            </span>
-                          )}
-                          {(() => {
-                            const perTeam = getPerTeamStatusBadges(lead);
-                            if (perTeam && perTeam.length > 0) {
-                              const sc = (s) => s === 'Completed' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/15'
-                                : s === 'In Progress' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/15'
-                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/15';
-                              return (
-                                <div className="flex flex-wrap gap-1">
-                                  {perTeam.map((t, i) => (
-                                    <span key={i} className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border uppercase tracking-wider ${sc(t.status)}`}>
-                                      {t.label}: {t.status}
-                                    </span>
-                                  ))}
-                                </div>
-                              );
-                            }
-                            return (
-                              <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border uppercase tracking-wider ${
-                                lead.workflowStatus === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-500/15 dark:bg-emerald-950/40 dark:text-emerald-300'
-                                : lead.workflowStatus === 'In Progress' ? 'bg-indigo-50 text-indigo-700 border-indigo-500/15 dark:bg-indigo-950/40 dark:text-indigo-300'
-                                : 'bg-amber-50 text-amber-700 border-amber-500/15 dark:bg-amber-955/40 dark:text-amber-300'
-                              }`}>
-                                {getStatusLabel(lead.workflowStatus)}
-                              </span>
-                            );
-                          })()}
-                        </div>
-                      </div>
-
-                      {/* Details Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[380px] overflow-y-auto pr-1">
-                        {/* Contact & Registration */}
-                        <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-2.5">
-                          <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider">Contact & Registration</h4>
-                          <div className="text-xs space-y-2 text-gray-750 dark:text-gray-300 font-medium">
-                            <div className="flex items-center gap-2">
-                              <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                              <span>Registered: <strong>{new Date(lead.createdAt || lead.timestamp).toLocaleDateString()}</strong></span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                              <span className="truncate">Email: <strong>{lead.email || '—'}</strong></span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                              <span>Business Number:
-                                <a href={`https://wa.me/${lead.mobileNumber.replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-indigo-650 dark:text-indigo-400 hover:underline font-bold ml-1">
-                                  {lead.mobileNumber}
-                                </a>
-                              </span>
-                            </div>  
-                          </div>
-                        </div>
-
-                        {/* Project Specifications */}
-                        <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-2.5">
-                          <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider">Project Specifications</h4>
-                          <div className="text-xs space-y-2 text-gray-750 dark:text-gray-300 font-medium">
-                            <div className="flex items-center gap-2">
-                              <span className="text-gray-400 shrink-0">Brand Colors:</span>
-                              <strong>{lead.brandColors || '—'}</strong>
-                              {lead.brandColors && <span className="w-3.5 h-3.5 rounded-full border border-gray-205 shrink-0" style={{ backgroundColor: lead.brandColors }} />}
-                            </div>
-                        
-                            <div><span className="text-gray-400">Competitors:</span> <strong>{lead.competitors || '—'}</strong></div>
-                            <div className="flex justify-between items-center text-[10px] pt-1 border-t border-gray-100 dark:border-slate-805/40">
-                              <span>Start: <strong>{lead.startDate || '—'}</strong></span>
-                              <span className="flex items-center gap-1.5">
-                                Deadline: <strong className="text-rose-500 font-bold">{lead.deliveryDeadline || '—'}</strong>
-                                {(() => {
-                                  const deadlineAlert = checkDeadlineAlert(lead.deliveryDeadline, lead.workflowStatus);
-                                  if (deadlineAlert) return <span className={`text-[8.5px] font-extrabold px-1 py-0.5 rounded-md ${deadlineAlert.color}`}>{deadlineAlert.label}</span>;
-                                  return null;
-                                })()}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Campaign Deliverables Checklist */}
-                        <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-2.5 md:col-span-2">
-                          <div className="flex justify-between items-center">
-                            <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider">Campaign Deliverables Checklist</h4>
-                            <span className="text-[10px] text-gray-405 font-bold">Overall progress: {completedReq}/{totalReq} completed</span>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                            {Number(lead.postersRequired) > 0 && (
-                              <div className="flex items-center justify-between p-2 bg-indigo-500/3 dark:bg-indigo-500/1 border border-indigo-500/5 rounded-lg">
-                                <span className="text-gray-700 dark:text-gray-300">Posters: <strong>{lead.postersRequired} required</strong></span>
-                                <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-gray-500 font-bold">{lead.postersStatus} ({Number(lead.postersRequired) - currentPostersPending} Done)</span>
-                              </div>
-                            )}
-                            {Number(lead.videosRequired) > 0 && (
-                              <div className="flex items-center justify-between p-2 bg-blue-500/3 dark:bg-blue-500/1 border border-blue-500/5 rounded-lg">
-                                <span className="text-gray-700 dark:text-gray-300">Videos: <strong>{lead.videosRequired} required</strong></span>
-                                <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-gray-500 font-bold">{lead.videosStatus} ({Number(lead.videosRequired) - currentVideosPending} Done)</span>
-                              </div>
-                            )}
-                            {(Number(lead.adsRequired) > 0 || (lead.platforms && lead.platforms.length > 0)) && (
-                              <div className="flex flex-col gap-1.5 p-2 bg-pink-500/3 dark:bg-pink-500/1 border border-pink-500/5 rounded-lg">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-gray-700 dark:text-gray-300">Ads/Campaigns: <strong>{lead.adsRequired > 0 ? `${lead.adsRequired} required` : 'Service only'}</strong></span>
-                                  {Number(lead.adsRequired) > 0 && (
-                                    <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-gray-500 font-bold">{lead.adsStatus} ({Number(lead.adsRequired) - currentAdsPending} Done)</span>
-                                  )}
-                                </div>
-                                {lead.platforms && lead.platforms.length > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {lead.platforms.map((platform, idx) => (
-                                      <span key={idx} className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10">{platform}</span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            {lead.websiteRequired && (
-                              <div className="flex items-center justify-between p-2 bg-purple-500/3 dark:bg-purple-500/1 border border-purple-500/5 rounded-lg sm:col-span-2">
-                                <span className="text-gray-700 dark:text-gray-300">Website: <strong>{lead.websiteType || 'General'} Dev</strong></span>
-                                <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-gray-500 font-bold">{lead.websiteStatus} ({lead.websiteStatus === 'Completed' ? '1' : '0'}/1 Done)</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Postings Card — Ads Team internal tracking only, and only after they've claimed the client */}
-{user?.team === 'ads' && isClaimed && (Number(lead.postersRequired) > 0 || Number(lead.videosRequired) > 0) && (
-  <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-3 md:col-span-2">
-    <div className="flex justify-between items-center">
-      <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider">Postings</h4>
-      <span className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold">Ads Team Internal Tracking</span>
-    </div>
-    <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-relaxed">
-      Track how many posters and videos have been posted on client channels. This status is internal to the Ads Team and does not affect the Design Team's progress.
-    </p>
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {Number(lead.postersRequired) > 0 && (
-        <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-gray-800 dark:text-gray-200">Posters Posting</span>
-            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">{lead.postersRequired} total</span>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Posting Status</label>
-              <select
-                value={postingsPostersStatus}
-                onChange={(e) => setPostingsPostersStatus(e.target.value)}
-                className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs"
-              >
-                <option value="Pending">Pending</option>
-                <option value="Completed">Completed</option>
-              </select>
-            </div>
-            {postingsPostersStatus === 'Pending' && (
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
-                <input
-                  type="number"
-                  min="0"
-                  max={lead.postersRequired}
-                  value={postingsPostersPending}
-                  onChange={(e) => setPostingsPostersPending(Math.min(Number(lead.postersRequired), Math.max(0, Number(e.target.value))))}
-                  className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs"
-                />
-              </div>
-            )}
-          </div>
-          <div className={`text-[10px] font-bold px-2 py-1 rounded-lg text-center ${
-            postingsPostersStatus === 'Completed'
-              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/15'
-              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/15'
-          }`}>
-            {postingsPostersStatus === 'Completed'
-              ? `All ${lead.postersRequired} posters posted`
-              : `${postingsPostersPending} of ${lead.postersRequired} posters remaining to post`}
-          </div>
-        </div>
-      )}
-      {Number(lead.videosRequired) > 0 && (
-        <div className="p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-gray-800 dark:text-gray-200">Videos Posting</span>
-            <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold">{lead.videosRequired} total</span>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Posting Status</label>
-              <select
-                value={postingsVideosStatus}
-                onChange={(e) => setPostingsVideosStatus(e.target.value)}
-                className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs"
-              >
-                <option value="Pending">Pending</option>
-                <option value="Completed">Completed</option>
-              </select>
-            </div>
-            {postingsVideosStatus === 'Pending' && (
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
-                <input
-                  type="number"
-                  min="0"
-                  max={lead.videosRequired}
-                  value={postingsVideosPending}
-                  onChange={(e) => setPostingsVideosPending(Math.min(Number(lead.videosRequired), Math.max(0, Number(e.target.value))))}
-                  className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs"
-                />
-              </div>
-            )}
-          </div>
-          <div className={`text-[10px] font-bold px-2 py-1 rounded-lg text-center ${
-            postingsVideosStatus === 'Completed'
-              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/15'
-              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/15'
-          }`}>
-            {postingsVideosStatus === 'Completed'
-              ? `All ${lead.videosRequired} videos posted`
-              : `${postingsVideosPending} of ${lead.videosRequired} videos remaining to post`}
-          </div>
-        </div>
-      )}
-    </div>
-  </div>
-)}
-
-                        {/* Notes */}
-                        {lead.notes && (
-                          <div className="bg-white/60 dark:bg-slate-900/40 p-4 rounded-xl border border-gray-150/40 dark:border-slate-800/40 space-y-3 md:col-span-2">
-                            <div className="text-xs space-y-1">
-                              <h5 className="font-bold text-gray-405 text-[10px] uppercase tracking-wider">Salesperson Instructions</h5>
-                              <p className="p-2.5 bg-yellow-500/5 dark:bg-yellow-550/2 border border-yellow-500/10 text-yellow-800 dark:text-yellow-300 rounded-lg leading-relaxed font-semibold">{lead.notes}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Action Area */}
-                    <div className="border-t border-gray-200/50 dark:border-slate-800/40 pt-4 mt-2">
-                      {!isClaimed ? (
-                        <div className="p-4 bg-amber-500/5 border border-dashed border-amber-500/20 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
-                          <div className="text-left">
-                            <h4 className="text-xs font-bold text-gray-900 dark:text-white">This project is unclaimed</h4>
-                            <p className="text-[10px] text-gray-500 dark:text-gray-405 mt-0.5 leading-normal">Accept the client campaign to start tracking task milestones and saving progress updates.</p>
-                          </div>
-                          <Button variant="primary" size="sm" onClick={() => handleAcceptClick(lead)} icon={CheckCircle} className="shrink-0 w-full sm:w-auto cursor-pointer shadow-sm">
-                            Accept Client
-                          </Button>
-                        </div>
-                      ) : (
-                        <form onSubmit={handleSaveUpdates} className="space-y-4">
-                          <div className="grid grid-cols-1 gap-4 max-h-[300px] overflow-y-auto pr-1">
-
-                            {/* ── Workflow Status: hidden for all specific teams, auto-derived from their team status ── */}
-                            {user?.team !== 'developer' && user?.team !== 'ads' && user?.team !== 'design' && (
-                              <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-2">
-                                <label className="text-xs font-bold text-gray-900 dark:text-white block">Workflow Status</label>
-                                <select
-                                  value={editWorkflowStatus}
-                                  onChange={(e) => setEditWorkflowStatus(e.target.value)}
-                                  className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs"
-                                >
-                                  <option value="Allocated">Pending</option>
-                                  <option value="In Progress">In Progress</option>
-                                  <option value="Completed">Completed</option>
-                                </select>
-                              </div>
-                            )}
-
-                            {/* Posters */}
-                            {Number(lead.postersRequired) > 0 && user?.team !== 'ads' && (
-                              <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-2">
-                                <div className="flex justify-between items-center">
-                                  <span className="font-bold text-gray-900 dark:text-white">Posters Progress</span>
-                                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400">Total: {lead.postersRequired} required</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-405 font-bold">Status</label>
-                                    <select value={postersStatus} onChange={(e) => setPostersStatus(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer">
-                                      <option value="Pending">Pending</option>
-                                      <option value="Completed">Completed</option>
-                                    </select>
-                                  </div>
-                                  {postersStatus === 'Pending' && (
-                                    <div className="flex flex-col gap-1">
-                                      <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
-                                      <input type="number" min="0" max={lead.postersRequired} value={postersPending} onChange={(e) => setPostersPending(Math.min(Number(lead.postersRequired), Math.max(0, Number(e.target.value))))} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white" />
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Videos */}
-                            {Number(lead.videosRequired) > 0 && user?.team !== 'ads' && (
-                              <div className="p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl space-y-2">
-                                <div className="flex justify-between items-center">
-                                  <span className="font-bold text-gray-900 dark:text-white">Videos Progress</span>
-                                  <span className="text-[10px] text-blue-650 dark:text-blue-400">Total: {lead.videosRequired} required</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-405 font-bold">Status</label>
-                                    <select value={videosStatus} onChange={(e) => setVideosStatus(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer">
-                                      <option value="Pending">Pending</option>
-                                      <option value="Completed">Completed</option>
-                                    </select>
-                                  </div>
-                                  {videosStatus === 'Pending' && (
-                                    <div className="flex flex-col gap-1">
-                                      <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
-                                      <input type="number" min="0" max={lead.videosRequired} value={videosPending} onChange={(e) => setVideosPending(Math.min(Number(lead.videosRequired), Math.max(0, Number(e.target.value))))} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white" />
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Ads Progress — hidden for ads team, managed via Postings card below */}
-                            {Number(lead.adsRequired) > 0 && user?.team !== 'ads' && (
-                              <div className="p-3 bg-pink-500/5 border border-pink-500/10 rounded-xl space-y-2">
-                                <div className="flex justify-between items-center">
-                                  <span className="font-bold text-gray-900 dark:text-white">Ads Progress</span>
-                                  <span className="text-[10px] text-pink-650 dark:text-pink-400">Total: {lead.adsRequired} required</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-405 font-bold">Status</label>
-                                    <select value={adsStatus} onChange={(e) => setAdsStatus(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer">
-                                      <option value="Pending">Pending</option>
-                                      <option value="In Progress">In Progress</option>
-                                      <option value="Completed">Completed</option>
-                                    </select>
-                                  </div>
-                                  {adsStatus !== 'Completed' && adsStatus !== 'Pending' && (
-                                    <div className="flex flex-col gap-1">
-                                      <label className="text-[10px] text-gray-455 font-bold">Pending Count</label>
-                                      <input type="number" min="0" max={lead.adsRequired} value={adsPending} onChange={(e) => setAdsPending(Math.min(Number(lead.adsRequired), Math.max(0, Number(e.target.value))))} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white" />
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* ── Website Status: hidden for developer team, controlled by Dev Team Status below ── */}
-                            {lead.websiteRequired && user?.team !== 'developer' && (
-                              <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl space-y-2">
-                                <div className="flex justify-between items-center">
-                                  <span className="font-bold text-gray-900 dark:text-white">Website Dev</span>
-                                  <span className="text-[10px] text-purple-650 dark:text-purple-400">{lead.websiteType || 'General'} website</span>
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                  <label className="text-[10px] text-gray-405 font-bold">Website Status</label>
-                                  <select value={websiteStatus} onChange={(e) => setWebsiteStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer">
-                                    <option value="Pending">Pending</option>
-                                    <option value="In Progress">In Progress</option>
-                                    <option value="Completed">Completed</option>
-                                  </select>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* ── Postings Card: posters + videos for ads team — only when assigned ── */}
-
-
-                          {/* Ads Team Section */}
-                          {(user?.team === 'ads' || user?.team === 'all') && !!selectedLead?.assignedAdSpecialist && (
-                            <div className="space-y-3 ">
-                              <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Ads Campaign — Plan Information</h4>
-
-                              {(Number(lead.adBudgetPerDay || 0) > 0 || lead.targetAudience) && (
-                                <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl space-y-2">
-                                  {Number(lead.adBudgetPerDay || 0) > 0 && (
-                                    <div className="flex justify-between items-center text-xs">
-                                      <span className="text-gray-500 dark:text-gray-400 font-semibold">Budget Per Day:</span>
-                                      <strong className="text-pink-600 dark:text-pink-400">₹{lead.adBudgetPerDay}/day</strong>
-                                    </div>
-                                  )}
-                                  {lead.targetAudience && (
-                                    <div className="text-xs">
-                                      <span className="text-[10px] text-gray-400 font-bold block mb-1 uppercase tracking-wider">Target Audience</span>
-                                      <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{lead.targetAudience}</p>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {Number(lead.metaAdsPlanDuration || 0) > 0 && (
-                                <div className="p-3 bg-indigo-500/5 border border-indigo-500/15 rounded-xl space-y-2.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">Meta Ads</span>
-                                    <span className="text-[10px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold">{lead.metaAdsPlanDuration} Days</span>
-                                  </div>
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
-                                    <input type="date" value={editMetaStart} onChange={(e) => setEditMetaStart(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer" />
-                                  </div>
-                                  {editMetaStart && (
-                                    <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-indigo-500/10">
-                                      <span className="text-gray-400">End Date:</span>
-                                      <strong className="text-indigo-600 dark:text-indigo-400">
-                                        {(() => { const d = new Date(editMetaStart); d.setDate(d.getDate() + Number(lead.metaAdsPlanDuration)); return d.toLocaleDateString('en-IN'); })()}
-                                      </strong>
-                                    </div>
-                                  )}
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
-                                    <select value={editMetaStatus} onChange={(e) => setEditMetaStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
-                                      <option value="Pending">Pending</option>
-                                      <option value="Completed">Completed</option>
-                                    </select>
-                                  </div>
-                                </div>
-                              )}
-
-                              {Number(lead.googleAdsPlanDuration || 0) > 0 && (
-                                <div className="p-3 bg-emerald-500/5 border border-emerald-500/15 rounded-xl space-y-2.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">Google Ads</span>
-                                    <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold">{lead.googleAdsPlanDuration} Days</span>
-                                  </div>
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
-                                    <input type="date" value={editGoogleStart} onChange={(e) => setEditGoogleStart(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer" />
-                                  </div>
-                                  {editGoogleStart && (
-                                    <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-emerald-500/10">
-                                      <span className="text-gray-400">End Date:</span>
-                                      <strong className="text-emerald-600 dark:text-emerald-400">
-                                        {(() => { const d = new Date(editGoogleStart); d.setDate(d.getDate() + Number(lead.googleAdsPlanDuration)); return d.toLocaleDateString('en-IN'); })()}
-                                      </strong>
-                                    </div>
-                                  )}
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
-                                    <select value={editGoogleStatus} onChange={(e) => setEditGoogleStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
-                                      <option value="Pending">Pending</option>
-                                      <option value="Completed">Completed</option>
-                                    </select>
-                                  </div>
-                                </div>
-                              )}
-
-                              {Number(lead.youtubeAdsPlanDuration || 0) > 0 && (
-  <div className="p-3 bg-rose-500/5 border border-rose-500/15 rounded-xl space-y-2.5">
-    <div className="flex items-center justify-between">
-      <span className="text-xs font-bold text-rose-600 dark:text-rose-400">YouTube Ads</span>
-      <span className="text-[10px] bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded-full font-bold">{lead.youtubeAdsPlanDuration} Days</span>
-    </div>
-    <div className="flex flex-col gap-1">
-      <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
-      <input
-        type="date"
-        value={editYoutubeStart}
-        onChange={(e) => setEditYoutubeStart(e.target.value)}
-        className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer"
-      />
-    </div>
-    {editYoutubeStart && (
-      <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-rose-500/10">
-        <span className="text-gray-400">End Date:</span>
-        <strong className="text-rose-600 dark:text-rose-400">
-          {(() => {
-            const d = new Date(editYoutubeStart);
-            d.setDate(d.getDate() + Number(lead.youtubeAdsPlanDuration));
-            return d.toLocaleDateString('en-IN');
-          })()}
-        </strong>
-      </div>
-    )}
-    <div className="flex flex-col gap-1">
-      <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
-      <select
-        value={editYoutubeStatus}
-        onChange={(e) => setEditYoutubeStatus(e.target.value)}
-        className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs"
-      >
-        <option value="Pending">Pending</option>
-        <option value="Completed">Completed</option>
-      </select>
-    </div>
-  </div>
-                                )}
-
-                              {Number(lead.linkedinAdsPlanDuration || 0) > 0 && (
-                                <div className="p-3 bg-blue-500/5 border border-blue-500/15 rounded-xl space-y-2.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400">LinkedIn Ads</span>
-                                    <span className="text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-bold">{lead.linkedinAdsPlanDuration} Days</span>
-                                  </div>
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
-                                    <input type="date" value={editLinkedinStart} onChange={(e) => setEditLinkedinStart(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer" />
-                                  </div>
-                                  {editLinkedinStart && (
-                                    <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-blue-500/10">
-                                      <span className="text-gray-400">End Date:</span>
-                                      <strong className="text-blue-600 dark:text-blue-400">
-                                        {(() => { const d = new Date(editLinkedinStart); d.setDate(d.getDate() + Number(lead.linkedinAdsPlanDuration)); return d.toLocaleDateString('en-IN'); })()}
-                                      </strong>
-                                    </div>
-                                  )}
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
-                                    <select value={editLinkedinStatus} onChange={(e) => setEditLinkedinStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
-                                      <option value="Pending">Pending</option>
-                                      <option value="Completed">Completed</option>
-                                    </select>
-                                  </div>
-                                </div>
-                              )}
-
-                              {Number(lead.seoPlanDuration || 0) > 0 && (
-                                <div className="p-3 bg-teal-500/5 border border-teal-500/15 rounded-xl space-y-2.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-teal-600 dark:text-teal-400">SEO</span>
-                                    <span className="text-[10px] bg-teal-500/10 text-teal-600 dark:text-teal-400 px-2 py-0.5 rounded-full font-bold">{lead.seoPlanDuration} Days</span>
-                                  </div>
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Start Date</label>
-                                    <input type="date" value={editSeoStart} onChange={(e) => setEditSeoStart(e.target.value)} className="rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white text-xs cursor-pointer" />
-                                  </div>
-                                  {editSeoStart && (
-                                    <div className="flex justify-between items-center text-xs p-2 bg-white/60 dark:bg-slate-900/40 rounded-lg border border-teal-500/10">
-                                      <span className="text-gray-400">End Date:</span>
-                                      <strong className="text-teal-600 dark:text-teal-400">
-                                        {(() => { const d = new Date(editSeoStart); d.setDate(d.getDate() + Number(lead.seoPlanDuration)); return d.toLocaleDateString('en-IN'); })()}
-                                      </strong>
-                                    </div>
-                                  )}
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Campaign Status</label>
-                                    <select value={editSeoStatus} onChange={(e) => setEditSeoStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
-                                      <option value="Pending">Pending</option>
-                                      <option value="Completed">Completed</option>
-                                    </select>
-                                  </div>
-                                </div>
-                              )}
-
-                              {lead.platforms && lead.platforms.includes('GMB') && (
-                                <div className="p-3 bg-amber-500/5 border border-amber-500/15 rounded-xl space-y-2.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-amber-600 dark:text-amber-400">GMB — Google Business Profile</span>
-                                    <span className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">One-Time</span>
-                                  </div>
-                                  <p className="text-[10px] text-gray-400 dark:text-gray-500">One-time implementation — no campaign duration or dates required.</p>
-                                  <div className="flex flex-col gap-1">
-                                    <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Status</label>
-                                    <select value={editGmbStatus} onChange={(e) => setEditGmbStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
-                                      <option value="Pending">Pending</option>
-                                      <option value="Completed">Completed</option>
-                                    </select>
-                                  </div>
-                                </div>
-                              )}
-
-
-                            </div>
-                          )}
-
-
-
-                          {/* ── Dev Team Status: the single source of truth for developer team ── */}
-                          {(user?.team === 'developer' || user?.team === 'all') && (
-                            <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl space-y-2">
-                              <label className="text-xs font-bold text-gray-900 dark:text-white block">Development Team Status</label>
-                              {user?.team === 'developer' && (
-                                <p className="text-[10px] text-gray-400 dark:text-gray-500">
-                                  Updating this also syncs the overall workflow and website status automatically.
-                                </p>
-                              )}
-                              <select value={editDevTeamStatus} onChange={(e) => setEditDevTeamStatus(e.target.value)} className="w-full rounded-lg border border-gray-250 dark:border-slate-800 py-1.5 px-2 bg-white dark:bg-slate-900/60 text-gray-955 dark:text-white cursor-pointer text-xs">
-                                <option value="Pending">Pending</option>
-                                <option value="Completed">Completed</option>
-                              </select>
-                            </div>
-                          )}
-
-                          <div className="flex items-center justify-between gap-3 pt-2">
-                            <Button type="button" variant="outline" className="w-1/2" onClick={handleCancelEdit}>Reset</Button>
-                            <Button type="submit" variant="primary" className="w-1/2" isLoading={isSubmitting} icon={Save}>Save Changes</Button>
-                          </div>
-                        </form>
-                      )}
-                    </div>
-
-                    {/* Collaboration Chat */}
-                    <div className="border-t border-gray-200/50 dark:border-slate-800/40 pt-4">
-                      <h4 className="text-[10px] font-bold text-gray-400 dark:text-gray-555 uppercase tracking-wider mb-2">Collaboration Chat</h4>
-                      <ClientChat leadId={leadId} />
-                    </div>
-                  </div>
-                );
-              })()}
+              {renderCampaignDetailPanel(selectedLead, false)}
             </div>
           </div>
         </Card>
@@ -2496,144 +2730,194 @@ if (team === 'ads') return 'grid grid-cols-1 sm:grid-cols-1 max-w-xs gap-4';
         {activeMetricsModal && (() => {
           const { title, list } = getMetricsModalTitleAndList();
           const isTotalMetric = activeMetricsModal === 'total';
-          const filteredList = isTotalMetric
-            ? list.filter((client) => {
-                const q = metricsSearchTerm.trim().toLowerCase();
-                const matchesSearch = !q || [
-                  client.clientName,
-                  client.clientId,
-                  client.companyName,
-                  client.mobileNumber
-                ].filter(Boolean).some((field) => String(field).toLowerCase().includes(q));
-                const matchesStatus =
-                  metricsStatusFilter === 'all' ||
-                  (metricsStatusFilter === 'pending' && client.workflowStatus !== 'In Progress' && client.workflowStatus !== 'Completed') ||
-                  (metricsStatusFilter === 'in-progress' && client.workflowStatus === 'In Progress') ||
-                  (metricsStatusFilter === 'completed' && client.workflowStatus === 'Completed');
-                return matchesSearch && matchesStatus;
-              })
-            : list;
+          const filteredList = list.filter((client) => {
+            const q = metricsSearchTerm.trim().toLowerCase();
+            const matchesSearch = !q || [
+              client.clientName,
+              client.clientId,
+              client.companyName,
+              client.mobileNumber
+            ].filter(Boolean).some((field) => String(field).toLowerCase().includes(q));
+
+            if (!isTotalMetric) return matchesSearch;
+
+            const matchesStatus =
+              metricsStatusFilter === 'all' ||
+              (metricsStatusFilter === 'pending' && client.workflowStatus !== 'In Progress' && client.workflowStatus !== 'Completed') ||
+              (metricsStatusFilter === 'in-progress' && client.workflowStatus === 'In Progress') ||
+              (metricsStatusFilter === 'completed' && client.workflowStatus === 'Completed');
+            return matchesSearch && matchesStatus;
+          });
+
+          const currentDetailLead = metricsDetailLeadId ? (leads.find((l) => (l._id || l.id) === metricsDetailLeadId) || selectedLead) : null;
+
           return (
             <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-xs flex items-center justify-center p-4 z-150 overflow-y-auto">
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-850 rounded-2xl w-full max-w-7xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden"
+                className="bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-850 rounded-2xl w-full max-w-7xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
               >
                 <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-slate-800/80">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900 dark:text-white">{title}</h3>
-                    <p className="text-xs text-gray-400 dark:text-gray-555 mt-0.5">Showing {filteredList.length} matching client briefs</p>
+                  <div className="flex items-center gap-3">
+                    {metricsDetailLeadId && (
+                      <button
+                        type="button"
+                        onClick={() => setMetricsDetailLeadId(null)}
+                        className="p-1.5 rounded-lg border border-gray-200 dark:border-slate-800 hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-300 transition-colors cursor-pointer"
+                        title="Back to tasks list"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
+                    )}
+                    <div>
+                      <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                        {metricsDetailLeadId ? `${title} • ${currentDetailLead?.clientName || 'Campaign Details'}` : title}
+                      </h3>
+                      <p className="text-xs text-gray-400 dark:text-gray-555 mt-0.5">
+                        {metricsDetailLeadId ? 'Assigned Campaign & Task Management' : `Showing ${filteredList.length} matching client briefs`}
+                      </p>
+                    </div>
                   </div>
-                  <button onClick={() => setActiveMetricsModal(null)} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors cursor-pointer">
+                  <button onClick={() => { setActiveMetricsModal(null); setMetricsDetailLeadId(null); }} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors cursor-pointer">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-                {isTotalMetric && (
-                  <div className="px-5 py-3 border-b border-gray-100 dark:border-slate-800/80 flex flex-col sm:flex-row gap-3 sm:items-center">
-                    <div className="relative flex-1">
-                      <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type="text"
-                        value={metricsSearchTerm}
-                        onChange={(e) => setMetricsSearchTerm(e.target.value)}
-                        placeholder="Search by client name, ID, company or number..."
-                        className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                      />
-                    </div>
-                    <div className="relative sm:w-56">
-                      <Sliders className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <select
-                        value={metricsStatusFilter}
-                        onChange={(e) => setMetricsStatusFilter(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 appearance-none cursor-pointer"
-                      >
-                        <option value="all">All Statuses</option>
-                        <option value="pending">Pending</option>
-                        <option value="in-progress">In Progress</option>
-                        <option value="completed">Completed</option>
-                      </select>
-                    </div>
+
+                {metricsDetailLeadId ? (
+                  <div className="p-6 overflow-y-auto flex-1 bg-white dark:bg-slate-900">
+                    {renderCampaignDetailPanel(currentDetailLead, true, () => setMetricsDetailLeadId(null))}
                   </div>
-                )}
-                <div className="p-6 overflow-y-auto flex-1">
-                  {filteredList.length === 0 ? (
-                    <div className="text-center py-12 text-gray-400 dark:text-gray-500">No client records match this category.</div>
-                  ) : (
-                    <div className="overflow-x-auto border border-gray-100 dark:border-slate-800/60 rounded-xl">
-                      <table className="w-full text-left text-sm border-collapse table-fixed">
-                        <colgroup>
-                          <col className="w-[10%]" />
-                          <col className="w-[19%]" />
-                          <col className="w-[12%]" />
-                          <col className="w-[19%]" />
-                          <col className="w-[24%]" />
-                          <col className="w-[16%]" />
-                        </colgroup>
-                        <thead>
-                          <tr className="bg-gray-50/50 dark:bg-slate-900/30 border-b border-gray-100 dark:border-slate-800/60">
-                            <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Client ID</th>
-                            <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Client Name</th>
-                            <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Business Number</th>
-                            <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Workflow Status</th>
-                            <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Assigned To</th>
-                            <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Created By</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 dark:divide-slate-800/40 text-gray-750 dark:text-gray-355 font-medium">
-                          {filteredList.map((client) => (
-                            <tr key={client._id || client.id} className="hover:bg-indigo-500/3 dark:hover:bg-indigo-500/1 transition-colors align-top">
-                              <td className="p-3 break-words">
-                                <button type="button" onClick={() => { setActiveMetricsModal(null); setViewedClientId(client._id || client.id); }} className="font-bold text-indigo-650 dark:text-indigo-400 hover:underline cursor-pointer break-words block" title={client.clientId}>
-                                  {client.clientId || 'N/A'}
-                                </button>
-                              </td>
-                              <td className="p-3 text-gray-900 dark:text-white font-bold overflow-hidden">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="break-words" title={client.clientName}>{client.clientName}</span>
-                                  {(() => { const badge = getPaymentStatus(client); return <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md shrink-0 ${badge.color}`}>{badge.label}</span>; })()}
-                                </div>
-                                {client.companyName && <div className="text-xs text-gray-405 dark:text-gray-550 font-normal mt-0.5 break-words" title={client.companyName}>{client.companyName}</div>}
-                              </td>
-                              <td className="p-3 font-mono break-words">{client.mobileNumber}</td>
-                              <td className="p-3">
-                                <span className={`px-2.5 py-1 rounded-full text-xs font-bold inline-block ${client.workflowStatus === 'Completed' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : client.workflowStatus === 'In Progress' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
-                                  {getStatusLabel(client.workflowStatus)}
-                                </span>
-                              </td>
-                              <td className="p-3 text-xs overflow-hidden">
-                                {(() => {
-                                  const teams = client.assignedTeam;
-                                  const teamList = !teams ? [] : Array.isArray(teams) ? teams : teams === 'all' ? ['design', 'developer', 'ads'] : [teams];
-                                  const assignees = [];
-                                  if (teamList.includes('ads') || teamList.includes('all')) assignees.push({ team: 'Ads', name: client.assignedAdSpecialistName || null, color: 'bg-pink-500/10 text-pink-600 dark:text-pink-400' });
-                                  if (teamList.includes('design') || teamList.includes('all')) assignees.push({ team: 'Design', name: client.assignedDesignerName || null, color: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' });
-                                  if (teamList.includes('developer') || teamList.includes('all')) assignees.push({ team: 'Dev', name: client.assignedDeveloperName || null, color: 'bg-purple-500/10 text-purple-600 dark:text-purple-400' });
-                                  if (assignees.length === 0) {
-                                    return <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-1 rounded-full text-xs font-bold inline-block">Unclaimed ({getTeamDisplayLabel(client.assignedTeam)})</span>;
-                                  }
-                                  return (
-                                    <div className="flex flex-col gap-1">
-                                      {assignees.map((a, i) => (
-                                        <span key={i} className={`px-2 py-0.5 rounded-md text-[10px] font-bold break-words ${a.color}`} title={`${a.team}: ${a.name || 'Unclaimed'}`}>
-                                          {a.team}: {a.name || <span className="opacity-50 italic">Unclaimed</span>}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  );
-                                })()}
-                              </td>
-                              <td className="p-3 text-xs text-gray-500 font-semibold break-words">{client.salespersonName}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                ) : (
+                  <>
+                    <div className="px-5 py-3 border-b border-gray-100 dark:border-slate-800/80 flex flex-col sm:flex-row gap-3 sm:items-center">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={metricsSearchTerm}
+                          onChange={(e) => setMetricsSearchTerm(e.target.value)}
+                          placeholder="Search by client name, ID, company or number..."
+                          className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                        />
+                      </div>
+                      {isTotalMetric && (
+                        <div className="relative sm:w-56">
+                          <Sliders className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <select
+                            value={metricsStatusFilter}
+                            onChange={(e) => setMetricsStatusFilter(e.target.value)}
+                            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 appearance-none cursor-pointer"
+                          >
+                            <option value="all">All Statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="in-progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                          </select>
+                        </div>
+                      )}
                     </div>
+                    <div className="p-6 overflow-y-auto flex-1">
+                      {filteredList.length === 0 ? (
+                        <div className="text-center py-12 text-gray-400 dark:text-gray-500">No client records match this category.</div>
+                      ) : (
+                        <div className="overflow-x-auto border border-gray-100 dark:border-slate-800/60 rounded-xl">
+                          <table className="w-full text-left text-sm border-collapse table-fixed">
+                            <colgroup>
+                              <col className="w-[10%]" />
+                              <col className="w-[19%]" />
+                              <col className="w-[12%]" />
+                              <col className="w-[19%]" />
+                              <col className="w-[24%]" />
+                              <col className="w-[16%]" />
+                            </colgroup>
+                            <thead>
+                              <tr className="bg-gray-50/50 dark:bg-slate-900/30 border-b border-gray-100 dark:border-slate-800/60">
+                                <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Client ID</th>
+                                <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Client Name</th>
+                                <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Business Number</th>
+                                <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Workflow Status</th>
+                                <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Assigned To</th>
+                                <th className="p-3 font-bold text-gray-700 dark:text-gray-300">Created By</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-slate-800/40 text-gray-750 dark:text-gray-355 font-medium">
+                              {filteredList.map((client) => {
+                                const statusToDisplay = user?.team && user?.team !== 'all' ? getMyTeamStatus(client) : client.workflowStatus;
+                                return (
+                                  <tr key={client._id || client.id} className="hover:bg-indigo-500/3 dark:hover:bg-indigo-500/1 transition-colors align-top">
+                                    <td className="p-3 break-words">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedLeadId(client._id || client.id);
+                                          setMetricsDetailLeadId(client._id || client.id);
+                                        }}
+                                        className="font-bold text-indigo-650 dark:text-indigo-400 hover:underline cursor-pointer break-words block"
+                                        title={client.clientId}
+                                      >
+                                        {client.clientId || 'N/A'}
+                                      </button>
+                                    </td>
+                                    <td className="p-3 text-gray-900 dark:text-white font-bold overflow-hidden">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="break-words" title={client.clientName}>{client.clientName}</span>
+                                        {(() => { const badge = getPaymentStatus(client); return <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md shrink-0 ${badge.color}`}>{badge.label}</span>; })()}
+                                      </div>
+                                      {client.companyName && <div className="text-xs text-gray-405 dark:text-gray-555 font-normal mt-0.5 break-words" title={client.companyName}>{client.companyName}</div>}
+                                    </td>
+                                    <td className="p-3 font-mono break-words">{client.mobileNumber}</td>
+                                    <td className="p-3">
+                                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold inline-block ${statusToDisplay === 'Completed' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : statusToDisplay === 'In Progress' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
+                                        {getStatusLabel(statusToDisplay)}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 text-xs overflow-hidden">
+                                      {(() => {
+                                        const teams = client.assignedTeam;
+                                        const teamList = !teams ? [] : Array.isArray(teams) ? teams : teams === 'all' ? ['design', 'developer', 'ads'] : [teams];
+                                        const assignees = [];
+                                        if (teamList.includes('ads') || teamList.includes('all')) assignees.push({ team: 'Ads', name: client.assignedAdSpecialistName || null, color: 'bg-pink-500/10 text-pink-600 dark:text-pink-400' });
+                                        if (teamList.includes('design') || teamList.includes('all')) assignees.push({ team: 'Design', name: client.assignedDesignerName || null, color: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' });
+                                        if (teamList.includes('developer') || teamList.includes('all')) assignees.push({ team: 'Dev', name: client.assignedDeveloperName || null, color: 'bg-purple-500/10 text-purple-600 dark:text-purple-400' });
+                                        if (assignees.length === 0) {
+                                          return <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-1 rounded-full text-xs font-bold inline-block">Unclaimed ({getTeamDisplayLabel(client.assignedTeam)})</span>;
+                                        }
+                                        return (
+                                          <div className="flex flex-col gap-1">
+                                            {assignees.map((a, i) => (
+                                              <span key={i} className={`px-2 py-0.5 rounded-md text-[10px] font-bold break-words ${a.color}`} title={`${a.team}: ${a.name || 'Unclaimed'}`}>
+                                                {a.team}: {a.name || <span className="opacity-50 italic">Unclaimed</span>}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        );
+                                      })()}
+                                    </td>
+                                    <td className="p-3 text-xs text-gray-500 font-semibold break-words">{client.salespersonName}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                <div className="flex justify-between items-center p-5 border-t border-gray-100 dark:border-slate-800/80">
+                  {metricsDetailLeadId ? (
+                    <Button onClick={() => setMetricsDetailLeadId(null)} variant="outline" size="sm" icon={ArrowLeft}>
+                      Back to Tasks
+                    </Button>
+                  ) : (
+                    <div />
                   )}
-                </div>
-                <div className="flex justify-end p-5 border-t border-gray-100 dark:border-slate-800/80">
-                  <Button onClick={() => setActiveMetricsModal(null)} variant="outline" size="sm">Close</Button>
+                  <Button onClick={() => { setActiveMetricsModal(null); setMetricsDetailLeadId(null); }} variant="outline" size="sm">
+                    Close
+                  </Button>
                 </div>
               </motion.div>
             </div>

@@ -13,13 +13,13 @@ import {
   Chrome,
   Notebook,
   IndianRupeeIcon,
-  Infinity,
+  Infinity as InfinityIcon,
   MapPin,
   TrendingUp
 } from 'lucide-react';
 
 const platformOptions = [
-  { id: 'Meta Ads', name: 'Meta Ads', icon: Infinity },
+  { id: 'Meta Ads', name: 'Meta Ads', icon: InfinityIcon },
   { id: 'Google Ads', name: 'Google Ads', icon: Chrome },
   { id: 'YouTube Ads', name: 'YouTube Ads', icon: Youtube },
   { id: 'LinkedIn Ads', name: 'LinkedIn Ads', icon: Linkedin },
@@ -27,7 +27,7 @@ const platformOptions = [
   { id: 'SEO', name: 'SEO', icon: TrendingUp },
 ];  
 
-export default function StepRequirementsBrief({ register, errors, setValue, watch, isClientPortal = false, isReadOnlyProfile = false }) {
+export default function StepRequirementsBrief({ register, errors, setValue, watch, isReadOnlyProfile = false }) {
   const watchPlatforms = watch('platforms') || [];
   const watchTargetAudienceRequired = watch('targetAudienceRequired') || 'Required';
   const watchBrandColor = watch('brandColors') || '#6366f1';
@@ -37,16 +37,6 @@ export default function StepRequirementsBrief({ register, errors, setValue, watc
   const hasSEO = watchPlatforms.includes('SEO');
   const hasYoutubeAds = watchPlatforms.includes('YouTube Ads');
 
-  const watchPosters = Number(watch('postersRequired') || 0);
-  const watchVideos = Number(watch('videosRequired') || 0);
-  const watchAds = Number(watch('adsRequired') || 0);
-  const watchWebsiteRequired = watch('websiteRequired');
-
-  const watchPostersStatus = watch('postersStatus');
-  const watchVideosStatus = watch('videosStatus');
-  const watchAdsStatus = watch('adsStatus');
-  const watchWebsiteStatus = watch('websiteStatus');
-
   const watchPlanAmount = Number(watch('planAmount') || 0);
   const watchAdvanceAmount = Number(watch('advanceAmount') || 0);
 
@@ -54,12 +44,6 @@ export default function StepRequirementsBrief({ register, errors, setValue, watc
     const calculatedPending = Math.max(0, watchPlanAmount - watchAdvanceAmount);
     setValue('pendingAmount', calculatedPending);
   }, [watchPlanAmount, watchAdvanceAmount, setValue]);
-
-  const statusOptions = [
-    { value: 'Pending', label: 'Pending' },
-    { value: 'In Progress', label: 'In Progress' },
-    { value: 'Completed', label: 'Completed' }
-  ];
 
   return (
     <div className="space-y-6">

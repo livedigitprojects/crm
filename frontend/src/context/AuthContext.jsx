@@ -21,7 +21,9 @@ export const AuthProvider = ({ children }) => {
 
   // Always holds the latest token, so authFetch can stay a stable function
   const tokenRef = useRef(token);
-  tokenRef.current = token;
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
 
   useEffect(() => {
     const verifySession = async () => {

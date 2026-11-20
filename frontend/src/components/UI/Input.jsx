@@ -116,7 +116,6 @@ TextArea.displayName = 'TextArea';
 // Reusable styled checkbox cards
 export const Checkbox = forwardRef(({
   label,
-  error,
   icon: Icon,
   className = '',
   checked,

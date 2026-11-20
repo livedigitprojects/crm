@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import Card from '../UI/Card';
 import Button from '../UI/Button';
-import { Copy, Check, FileCode, Play, ExternalLink, X } from 'lucide-react';
+import { Copy, Check, FileCode, Play, X } from 'lucide-react';
 
 export const googleAppsScriptCode = `/**
  * Google Apps Script - Marketing Lead Collection Web App

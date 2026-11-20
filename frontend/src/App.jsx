@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
 import usePolling from './hooks/usePolling';
 import ToastContainer from './components/UI/Toast';
@@ -41,7 +41,7 @@ const fieldCls =
   'w-full rounded-xl border border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600 py-3 text-sm bg-white dark:bg-slate-900/60 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500 shadow-xs outline-hidden focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15';
 
 export default function App() {
-  const { user, logout, login, loading, authFetch } = useAuth();
+  const { user, login, loading, authFetch } = useAuth();
   const [theme, setTheme] = useLocalStorage('theme_v2', 'light');
   const [toasts, setToasts] = useState([]);
 
@@ -98,19 +98,19 @@ export default function App() {
   usePolling(fetchNotifications, 60000, { enabled: !!user });
 
   // Toast System Actions
-  const addToast = (title, message, type = 'info') => {
-    const id = Date.now() + Math.random().toString(36).substr(2, 9);
+  const removeToast = useCallback((id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  }, []);
+
+  const addToast = useCallback((title, message, type = 'info') => {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
     setToasts(prev => [...prev, { id, title, message, type }]);
 
     // Auto-remove after 4 seconds
     setTimeout(() => {
       removeToast(id);
     }, 4000);
-  };
-
-  const removeToast = (id) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id));
-  };
+  }, [removeToast]);
 
   const addNotification = async (message, type = 'info') => {
     try {

@@ -136,8 +136,23 @@ const deleteUser = async (req, res) => {
       // Cascade delete: Remove all leads associated with this salesperson
       await Lead.deleteMany({ salesperson: req.params.id });
     } else if (user.role === 'technical') {
-      // Cascade unassign: Clear assignedTo fields on all leads assigned to this technical member
-      await Lead.updateMany({ assignedTo: req.params.id }, { assignedTo: null, assignedToName: null });
+      // Cascade unassign: Clear specialist assignments across all departments
+      await Lead.updateMany(
+        { assignedDeveloper: req.params.id },
+        { assignedDeveloper: null, assignedDeveloperName: null, devTeamStatus: 'Pending', websiteStatus: 'Pending' }
+      );
+      await Lead.updateMany(
+        { assignedDesigner: req.params.id },
+        { assignedDesigner: null, assignedDesignerName: null, designTeamStatus: 'Pending' }
+      );
+      await Lead.updateMany(
+        { assignedAdSpecialist: req.params.id },
+        { assignedAdSpecialist: null, assignedAdSpecialistName: null, adsTeamStatus: 'Pending', adsStatus: 'Pending' }
+      );
+      await Lead.updateMany(
+        { assignedTo: req.params.id },
+        { assignedTo: null, assignedToName: null }
+      );
     } else {
       return res.status(400).json({ message: 'Only salesperson and technical accounts can be deleted' });
     }

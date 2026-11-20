@@ -90,7 +90,7 @@ export default function StepProfileAccess({ register, errors, watch, isClientPor
             {...register('mobileNumber', { 
               required: 'Mobile Number is required',
               pattern: {
-                value: /^[\d\s\+\-\(\)]{7,20}$/,
+                value: /^[\d\s+\-()]{7,20}$/,
                 message: 'Please enter a valid phone number'
               }
             })}
@@ -138,7 +138,7 @@ export default function StepProfileAccess({ register, errors, watch, isClientPor
             error={errors.websiteUrl?.message}
             {...register('websiteUrl', {
               pattern: {
-                value: /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/,
+                value: /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/,
                 message: 'Please enter a valid website URL'
               }
             })}

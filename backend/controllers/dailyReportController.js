@@ -94,7 +94,7 @@ const getDailyReports = async (req, res) => {
       query.clientBusinessName = { $regex: req.query.search.trim(), $options: 'i' };
     }
 
-    const reports = await DailyReport.find(query).sort({ date: -1, createdAt: -1 });
+    const reports = await DailyReport.find(query).sort({ date: -1, createdAt: -1 }).lean();
     res.json(reports);
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -9,10 +9,16 @@ const createLeadNotification = async (clientId, description) => {
     const message = `[${clientId}] ${description}`;
     await Notification.create({ message, type: 'info', timestamp: new Date() });
 
-    const stale = await Notification.find().sort({ timestamp: -1 }).skip(100).select('_id').lean();
-    if (stale.length) {
-      await Notification.deleteMany({ _id: { $in: stale.map(n => n._id) } });
-    }
+    setImmediate(async () => {
+      try {
+        const stale = await Notification.find().sort({ timestamp: -1 }).skip(100).select('_id').lean();
+        if (stale.length) {
+          await Notification.deleteMany({ _id: { $in: stale.map(n => n._id) } });
+        }
+      } catch (e) {
+        // Background prune catch
+      }
+    });
   } catch (err) {
     console.error('Error generating backend lead notification:', err.message);
   }
@@ -126,14 +132,7 @@ const redactLeadForTechnicalUser = (lead, team) => {
     delete leadObj.websiteStatus;
     delete leadObj.websitePending;
     delete leadObj.websiteUrl;
-    // delete leadObj.postersRequired;
-    // delete leadObj.postersPending;
-    // delete leadObj.postersStatus;
-    // delete leadObj.videosRequired;
-    // delete leadObj.videosPending;
-    // delete leadObj.videosStatus;
-    // delete leadObj.brandColors;
-    delete leadObj.adBudget;
+    // adBudget and adBudgetPerDay are preserved for the ads team to configure campaigns
     // platforms is intentionally kept so ads team can see GMB, SEO etc.
   }
 
@@ -447,6 +446,199 @@ const assignLeads = async (req, res) => {
   }
 };
 
+// Helper for human-readable team label
+const getTeamDisplayLabel = (team) => {
+  if (!team) return 'General';
+  if (Array.isArray(team)) {
+    if (team.includes('all')) return 'All Departments';
+    return team.map(t => getTeamDisplayLabel(t)).join(', ');
+  }
+  if (team === 'developer') return 'Developer';
+  if (team === 'design') return 'Design';
+  if (team === 'ads') return 'Ads Campaign';
+  if (team === 'all') return 'All Departments';
+  return String(team);
+};
+
+// @desc    Bulk claim leads for technical team
+// @route   POST /api/leads/bulk-claim
+// @access  Private (Technical only or Admin)
+const bulkClaimLeads = async (req, res) => {
+  try {
+    if (req.user.role !== 'technical' && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied: Technical role required' });
+    }
+
+    const { leadIds } = req.body;
+    if (!Array.isArray(leadIds) || leadIds.length === 0) {
+      return res.status(400).json({ message: 'No lead IDs provided for bulk claim' });
+    }
+
+    const leads = await Lead.find({ _id: { $in: leadIds } });
+    let claimedCount = 0;
+    const userTeam = req.user.team;
+    const userId = req.user._id || req.user.id;
+    const userIdStr = String(userId);
+
+    for (const lead of leads) {
+      // Must be routed to user's team or user has 'all' team
+      if (userTeam && userTeam !== 'all' && !hasTeam(lead, userTeam)) {
+        continue;
+      }
+
+      // Check if already claimed by another specialist in this department
+      if (userTeam === 'developer' && lead.assignedDeveloper && lead.assignedDeveloper.toString() !== userIdStr) {
+        continue;
+      }
+      if (userTeam === 'design' && lead.assignedDesigner && lead.assignedDesigner.toString() !== userIdStr) {
+        continue;
+      }
+      if (userTeam === 'ads' && lead.assignedAdSpecialist && lead.assignedAdSpecialist.toString() !== userIdStr) {
+        continue;
+      }
+
+      // Assign to this specialist
+      if (userTeam === 'developer') {
+        lead.assignedDeveloper = userId;
+        lead.assignedDeveloperName = req.user.name;
+        lead.devTeamStatus = 'In Progress';
+        lead.websiteStatus = 'In Progress';
+      } else if (userTeam === 'design') {
+        lead.assignedDesigner = userId;
+        lead.assignedDesignerName = req.user.name;
+        lead.designTeamStatus = 'In Progress';
+      } else if (userTeam === 'ads') {
+        lead.assignedAdSpecialist = userId;
+        lead.assignedAdSpecialistName = req.user.name;
+        lead.adsTeamStatus = 'In Progress';
+        lead.adsStatus = 'In Progress';
+      } else {
+        lead.assignedTo = userId;
+        lead.assignedToName = req.user.name;
+      }
+
+      if (!lead.assignedTo) {
+        lead.assignedTo = userId;
+        lead.assignedToName = req.user.name;
+      }
+      lead.workflowStatus = 'In Progress';
+
+      await lead.save();
+      claimedCount++;
+      if (lead.clientId) {
+        await createLeadNotification(lead.clientId, `Task claimed in bulk by ${req.user.name} (${getTeamDisplayLabel(userTeam)})`);
+      }
+    }
+
+    return res.json({
+      success: true,
+      count: claimedCount,
+      message: `Successfully claimed ${claimedCount} task${claimedCount === 1 ? '' : 's'}.`
+    });
+  } catch (error) {
+    console.error('Bulk claim error:', error);
+    return res.status(500).json({ message: error.message || 'Server error during bulk claim' });
+  }
+};
+
+// @desc    Bulk unclaim leads for technical team
+// @route   POST /api/leads/bulk-unclaim
+// @access  Private (Technical only or Admin)
+const bulkUnclaimLeads = async (req, res) => {
+  try {
+    if (req.user.role !== 'technical' && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied: Technical role required' });
+    }
+
+    const { leadIds } = req.body;
+    if (!Array.isArray(leadIds) || leadIds.length === 0) {
+      return res.status(400).json({ message: 'No lead IDs provided for bulk unclaim' });
+    }
+
+    const leads = await Lead.find({ _id: { $in: leadIds } });
+    let unclaimedCount = 0;
+    const userTeam = req.user.team;
+    const userId = req.user._id || req.user.id;
+    const userIdStr = String(userId);
+
+    for (const lead of leads) {
+      let wasClaimedByMe = false;
+      if (req.user.role === 'admin') {
+        wasClaimedByMe = true;
+      } else if (userTeam === 'developer' && lead.assignedDeveloper?.toString() === userIdStr) {
+        wasClaimedByMe = true;
+      } else if (userTeam === 'design' && lead.assignedDesigner?.toString() === userIdStr) {
+        wasClaimedByMe = true;
+      } else if (userTeam === 'ads' && lead.assignedAdSpecialist?.toString() === userIdStr) {
+        wasClaimedByMe = true;
+      } else if (lead.assignedTo?.toString() === userIdStr) {
+        wasClaimedByMe = true;
+      }
+
+      if (!wasClaimedByMe) continue;
+
+      if (userTeam === 'developer' || req.user.role === 'admin') {
+        lead.assignedDeveloper = null;
+        lead.assignedDeveloperName = null;
+        lead.devTeamStatus = 'Pending';
+        lead.websiteStatus = 'Pending';
+      }
+      if (userTeam === 'design' || req.user.role === 'admin') {
+        lead.assignedDesigner = null;
+        lead.assignedDesignerName = null;
+        lead.designTeamStatus = 'Pending';
+      }
+      if (userTeam === 'ads' || req.user.role === 'admin') {
+        lead.assignedAdSpecialist = null;
+        lead.assignedAdSpecialistName = null;
+        lead.adsTeamStatus = 'Pending';
+        lead.adsStatus = 'Pending';
+      }
+
+      // Sync legacy assignedTo
+      if (!lead.assignedDeveloper && !lead.assignedDesigner && !lead.assignedAdSpecialist) {
+        lead.assignedTo = null;
+        lead.assignedToName = null;
+      } else {
+        lead.assignedTo = lead.assignedDeveloper || lead.assignedDesigner || lead.assignedAdSpecialist;
+        lead.assignedToName = lead.assignedDeveloperName || lead.assignedDesignerName || lead.assignedAdSpecialistName;
+      }
+
+      // Recalculate workflowStatus
+      const devStatus = lead.devTeamStatus || 'Pending';
+      const designStatus = lead.designTeamStatus || 'Pending';
+      const adsStatus = lead.adsTeamStatus || 'Pending';
+      const anyInProgress = devStatus === 'In Progress' || designStatus === 'In Progress' || adsStatus === 'In Progress';
+      const allCompleted = (devStatus === 'Completed' || !hasTeam(lead, 'developer')) &&
+                           (designStatus === 'Completed' || !hasTeam(lead, 'design')) &&
+                           (adsStatus === 'Completed' || !hasTeam(lead, 'ads'));
+
+      if (allCompleted) {
+        lead.workflowStatus = 'Completed';
+      } else if (anyInProgress) {
+        lead.workflowStatus = 'In Progress';
+      } else {
+        lead.workflowStatus = 'Allocated';
+      }
+
+      await lead.save();
+      unclaimedCount++;
+      if (lead.clientId) {
+        await createLeadNotification(lead.clientId, `Task unclaimed in bulk by ${req.user.name} (${getTeamDisplayLabel(userTeam)})`);
+      }
+    }
+
+    return res.json({
+      success: true,
+      count: unclaimedCount,
+      message: `Successfully unclaimed ${unclaimedCount} task${unclaimedCount === 1 ? '' : 's'}.`
+    });
+  } catch (error) {
+    console.error('Bulk unclaim error:', error);
+    return res.status(500).json({ message: error.message || 'Server error during bulk unclaim' });
+  }
+};
+
 // @desc    Create a new lead draft
 // @route   POST /api/leads
 // @access  Private
@@ -587,7 +779,14 @@ const updateLead = async (req, res) => {
       }
     }
 
-    if (!isAdmin && !isCreator && !isSalesperson && !isAssignee && !isTeamMember && !isClaimAction) {
+    let isUnclaimAction = false;
+    if (req.user.role === 'technical' && (req.body.unclaim === true || req.body.assignedTo === null)) {
+      if (isAssignee) {
+        isUnclaimAction = true;
+      }
+    }
+
+    if (!isAdmin && !isCreator && !isSalesperson && !isAssignee && !isTeamMember && !isClaimAction && !isUnclaimAction) {
       return res.status(403).json({ message: 'Access denied: Cannot edit leads assigned to others or already claimed by another specialist' });
     }
 
@@ -641,9 +840,58 @@ const updateLead = async (req, res) => {
       }
     }
 
-    // Intercept technical user claim/accept actions
+    // Intercept technical user claim/unclaim/accept actions
     if (req.user.role === 'technical') {
-      if (req.body.assignedTo !== undefined) {
+      if (req.body.unclaim === true || req.body.assignedTo === null) {
+        // Unclaim action
+        if (req.user.team === 'developer') {
+          updatedData.assignedDeveloper = null;
+          updatedData.assignedDeveloperName = null;
+          updatedData.devTeamStatus = 'Pending';
+          updatedData.websiteStatus = 'Pending';
+        } else if (req.user.team === 'design') {
+          updatedData.assignedDesigner = null;
+          updatedData.assignedDesignerName = null;
+          updatedData.designTeamStatus = 'Pending';
+        } else if (req.user.team === 'ads') {
+          updatedData.assignedAdSpecialist = null;
+          updatedData.assignedAdSpecialistName = null;
+          updatedData.adsTeamStatus = 'Pending';
+          updatedData.adsStatus = 'Pending';
+        }
+
+        // Sync legacy assignedTo fields
+        const remainingDev = updatedData.assignedDeveloper !== undefined ? updatedData.assignedDeveloper : lead.assignedDeveloper;
+        const remainingDesign = updatedData.assignedDesigner !== undefined ? updatedData.assignedDesigner : lead.assignedDesigner;
+        const remainingAds = updatedData.assignedAdSpecialist !== undefined ? updatedData.assignedAdSpecialist : lead.assignedAdSpecialist;
+
+        if (!remainingDev && !remainingDesign && !remainingAds) {
+          updatedData.assignedTo = null;
+          updatedData.assignedToName = null;
+        } else {
+          updatedData.assignedTo = remainingDev || remainingDesign || remainingAds;
+          updatedData.assignedToName = (remainingDev ? lead.assignedDeveloperName : null) ||
+                                       (remainingDesign ? lead.assignedDesignerName : null) ||
+                                       (remainingAds ? lead.assignedAdSpecialistName : null);
+        }
+
+        // Recalculate workflowStatus
+        const devStatus = req.user.team === 'developer' ? 'Pending' : (lead.devTeamStatus || 'Pending');
+        const designStatus = req.user.team === 'design' ? 'Pending' : (lead.designTeamStatus || 'Pending');
+        const adsStatus = req.user.team === 'ads' ? 'Pending' : (lead.adsTeamStatus || 'Pending');
+        const anyInProgress = devStatus === 'In Progress' || designStatus === 'In Progress' || adsStatus === 'In Progress';
+        const allCompleted = (devStatus === 'Completed' || !hasTeam(lead, 'developer')) &&
+                             (designStatus === 'Completed' || !hasTeam(lead, 'design')) &&
+                             (adsStatus === 'Completed' || !hasTeam(lead, 'ads'));
+
+        if (allCompleted) {
+          updatedData.workflowStatus = 'Completed';
+        } else if (anyInProgress) {
+          updatedData.workflowStatus = 'In Progress';
+        } else {
+          updatedData.workflowStatus = 'Allocated';
+        }
+      } else if (req.body.assignedTo !== undefined) {
         updatedData.workflowStatus = 'In Progress';
         if (req.user.team === 'developer') {
           updatedData.assignedDeveloper = req.body.assignedTo;
@@ -1026,10 +1274,14 @@ module.exports = {
   getLeads,
   getLeadById,
   assignLeads,
+  bulkClaimLeads,
+  bulkUnclaimLeads,
   createLead,
   updateLead,
   deleteLead,
   syncLead,
   addLeadMessage,
-  getLeadMessages
+  getLeadMessages,
+  redactLeadForRole,
+  getTeamDisplayLabel
 };
