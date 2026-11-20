@@ -10,7 +10,7 @@ const User = require('./models/User');
 const app = express();
 
 const allowedOrigins = [
-  'https://crm-frontend-psi-beige.vercel.app',
+  'https://crm-frontend-2869.onrender.com',
   'https://crm.livedigit.in',
   'http://localhost:5173',
   ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : []),
